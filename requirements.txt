@@ -6,3 +6,6 @@ pillow
 exifread
 opencv-python
 requests
+tqdm
+fbpca
+pympler
