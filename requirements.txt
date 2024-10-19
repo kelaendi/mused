@@ -1,0 +1,8 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+pillow
+exifread
+opencv-python
+requests
