@@ -1,0 +1,3 @@
+[submodule "sliding-window-sketching"]
+	path = sliding-window-sketching
+	url = https://github.com/kelaendi/sliding-window-sketching.git
