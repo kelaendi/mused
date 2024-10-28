@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 from swfd import SeqBasedSWFD
 from collections import deque
 import math
@@ -66,15 +67,26 @@ def visualize_clusters(reduced_matrix, clusters, plot_name="cluster_vis", save_p
     plot_filename = os.path.join(save_path, plot_name)
 
     plt.savefig(plot_filename)
-    print(f"Plot saved as {plot_filename}")
 
-def process_streaming_data(data, window_size, k_neighbors, reduced_dim, n_clusters, seed):
+def process_streaming_data(data, window_size, k_neighbors, reduced_dim, n_clusters, seed, save_path="logs/"):
     
+    # Ensure the save path exists
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    log_name = f"seed={seed},N={len(data[0])},window_size={window_size},k={k_neighbors}.txt"
+
+    log_file = os.path.join(save_path, log_name)
+
+    with open(log_file, "w") as f_log:
+        f_log.write("Window_End_Index\tSilhouette_Score\tCenter_Shift\tAnomaly_Detected\n")
+        
     swfd = SeqBasedSWFD(window_size, R=1, d=len(data[0][0]), sketch_dim=reduced_dim)
 
     # Initialize sliding window as a deque, ensuring old data points get removed as new ones are added
     window = deque(maxlen=window_size)
     all_clusters = []
+    prev_centers = None #for keeping track of cluster center shifts
 
     # Simulate streaming data
     for i in range(len(data[0])):
@@ -88,12 +100,31 @@ def process_streaming_data(data, window_size, k_neighbors, reduced_dim, n_cluste
 
             # Reduce and cluster on the window
             reduced_data, clusters = fuse_reduce_and_cluster(window_data, k_neighbors, reduced_dim, n_clusters, seed)
-            swfd.fit(reduced_data)  # Update the sketch with reduced data
+            
+            # Update the sketch with reduced data
+            swfd.fit(reduced_data)
             all_clusters.append(clusters)
+
+            # Calculate metrics
+            silhouette_avg = silhouette_score(reduced_data, clusters) if len(set(clusters)) > 1 else -1
+            centers = np.array([reduced_data[clusters == c].mean(axis=0) for c in range(n_clusters)])
+            center_shift = np.linalg.norm(centers - prev_centers) if prev_centers is not None else 0
+            prev_centers = centers
+
+            # Flag anomaly if silhouette score is low or shift is large
+            # TODO how to best set this thresholds?
+            anomaly_detected = silhouette_avg < 0.2 or center_shift > 1.0
+            anomaly_flag = "Yes" if anomaly_detected else "No"
+
+            # Log the metrics to the file
+            with open(log_file, "a") as log:
+                log.write(f"{i}\t{silhouette_avg:.3f}\t{center_shift:.3f}\t{anomaly_flag}\n")
+
             if (i%window_size==0 or i==len(data[0])-1):
-                plot_name = f"N={len(data[0])},k={k_neighbors},seed={seed},i={i}"
+                plot_name = f"seed={seed},N={len(data[0])},window_size={window_size},k={k_neighbors},i={i}"
                 visualize_clusters(reduced_data, clusters, plot_name)
-    
+                # B_t, _, _, delta = swfd.get()
+                # print(B_t)
 
 def run():
     # Set parameters to tweak
@@ -105,7 +136,9 @@ def run():
     n_clusters = 2 #normal vs anomalous
 
     random_data = generate_random_multimodal_data(N, seed)
-    process_streaming_data(random_data, window_size, k_neighbors, reduced_dim, n_clusters, seed)    
+    process_streaming_data(random_data, window_size, k_neighbors, reduced_dim, n_clusters, seed)
+
+    print(f"Finished processing for seed={seed},N={N},window_size={window_size},k={k_neighbors}")
 
 if __name__ == "__main__":
     run()
