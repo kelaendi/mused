@@ -1,4 +1,3 @@
-# Make all imports I could maybe need
 import os
 import numpy as np
 import pandas as pd
@@ -6,13 +5,9 @@ import matplotlib.pyplot as plt
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
-from sklearn.metrics import adjusted_rand_score
+from swfd import SeqBasedSWFD
 from collections import deque
-from PIL import Image
-from PIL.ExifTags import TAGS
-# import cv2
-# import exifread
-# import requests
+import math
 
 def generate_random_multimodal_data(N, seed):
     np.random.seed(seed)
@@ -33,14 +28,14 @@ def create_adjacency_matrix(data, k):
             matrix[j, i] = 1
     return matrix
 
-def fuse_reduce_and_cluster(N, data, k_neighbors, reduced_dim, n_clusters, seed):
+def fuse_reduce_and_cluster(window_data, k_neighbors, reduced_dim, n_clusters, seed):
     # Create an adjacency matrix for each modality
     adjacency_matrices = []
-    for modality in data:
+    for modality in window_data:
         adjacency_matrices.append(create_adjacency_matrix(modality, k_neighbors))
 
     # Construct multimodal adjacency matrix with logical OR
-    fused_matrix = np.zeros((N, N))
+    fused_matrix = np.zeros((len(window_data[0]), len(window_data[0])))
     for matrix in adjacency_matrices:
         fused_matrix = np.logical_or(fused_matrix, matrix)
     fused_matrix = fused_matrix.astype(int) # int instead of boolean
@@ -73,20 +68,44 @@ def visualize_clusters(reduced_matrix, clusters, plot_name="cluster_vis", save_p
     plt.savefig(plot_filename)
     print(f"Plot saved as {plot_filename}")
 
+def process_streaming_data(data, window_size, k_neighbors, reduced_dim, n_clusters, seed):
+    
+    swfd = SeqBasedSWFD(window_size, R=1, d=len(data[0][0]), sketch_dim=reduced_dim)
+
+    # Initialize sliding window as a deque, ensuring old data points get removed as new ones are added
+    window = deque(maxlen=window_size)
+    all_clusters = []
+
+    # Simulate streaming data
+    for i in range(len(data[0])):
+        # Collect a single data point from each modality
+        data_point = [modality[i:i+1] for modality in data]  
+        window.append(data_point)
+
+        # Only process once we have a full window
+        if len(window) == window_size:
+            window_data = [np.concatenate([point[mod] for point in window], axis=0) for mod in range(len(data))]
+
+            # Reduce and cluster on the window
+            reduced_data, clusters = fuse_reduce_and_cluster(window_data, k_neighbors, reduced_dim, n_clusters, seed)
+            swfd.fit(reduced_data)  # Update the sketch with reduced data
+            all_clusters.append(clusters)
+            if (i%window_size==0 or i==len(data[0])-1):
+                plot_name = f"N={len(data[0])},k={k_neighbors},seed={seed},i={i}"
+                visualize_clusters(reduced_data, clusters, plot_name)
+    
 
 def run():
     # Set parameters to tweak
-    N = 100
+    N = 1000
     seed = 123
-    k_neighbors = 10 # sqrt(N)
-    reduced_dim = 20 # cumulative variance plot? set so dim explains 90%
-    n_clusters = 2 # see elbow method
-    plot_name = f"N={N},k={k_neighbors},seed={seed}"
+    window_size = 200  # Size of sliding window
+    k_neighbors = math.floor(math.sqrt(window_size))
+    reduced_dim = window_size//20 # cumulative variance plot? set so dim explains 90%
+    n_clusters = 2 #normal vs anomalous
 
     random_data = generate_random_multimodal_data(N, seed)
-    reduced_data, clusters = fuse_reduce_and_cluster(N, random_data, k_neighbors, reduced_dim, n_clusters, seed)
-    visualize_clusters(reduced_data, clusters, plot_name)
-    
+    process_streaming_data(random_data, window_size, k_neighbors, reduced_dim, n_clusters, seed)    
 
 if __name__ == "__main__":
     run()
