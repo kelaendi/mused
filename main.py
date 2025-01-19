@@ -54,8 +54,10 @@ def compute_dunn_index(data, labels):
 def visualize_results(metrics, save_path="plots/"):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
+
+    metric_names = list(next(iter(metrics.values())).keys())
     
-    for metric_name in metrics.keys():
+    for metric_name in metric_names:
         if metric_name == "window_indices":
             continue
 
@@ -251,7 +253,6 @@ def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_di
             results["silhouette_score"].append(silhouette_score)
             results["norm_delta"].append(norm_delta)
             results["processing_time"].append(processing_time)
-
     return results
 
 # def log_metrics(results,total_size,window_size,reduced_dim,k_neighbors,seed,save_path="logs/"):
