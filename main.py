@@ -255,24 +255,30 @@ def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_di
             results["processing_time"].append(processing_time)
     return results
 
-# def log_metrics(results,total_size,window_size,reduced_dim,k_neighbors,seed,save_path="logs/"):
-#     # Ensure the save path exists
-#     if not os.path.exists(save_path):
-#         os.makedirs(save_path)
+def log_metrics(metrics, save_path="logs/"):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
-#     log_name = f"svd,seed={seed},n={total_size},window_size={window_size},reduced_dim={reduced_dim},k={k_neighbors}.txt"
+    log_file = os.path.join(save_path, "metric_averages.txt")
 
-#     log_file = os.path.join(save_path, log_name)
+    with open(log_file, "w") as f:
+        f.write("Metric & Naive & SVD & SWFD\_first \\\\\n")
 
-#     with open(log_file, "w") as f_log:
-#         # f_log.write("max_error\tavg_error\tavg_update_time\tavg_query_time\tmax_size\tWindow_End_Index\tSilhouette_Score\tCenter_Shift\tAnomaly_Detected\n")
-#         f_log.write("Window_End_Index\tSilhouette_Score\tCenter_Shift\tAnomaly_Detected\tNorm_Delta\tProcessing_Time\n")
+        # Extract metric names from one approach
+        metric_names = list(next(iter(metrics.values())).keys())
+        metric_names.remove("window_indices")
 
-#     # Log the metrics to the file
-#     with open(log_file, "a") as log:
-#         # log.write(f"{max_error:.6f}\t{avg_error:.6f}\t{avg_update_time:.6f}\t{avg_query_time:.6f}\t{max_size}\t{i}\t{silhouette_avg:.3f}\t{center_shift:.3f}\t{anomaly_flag}\n")
-#         log.write(f"{i}\t{results["silhouette"]:.3f}\t{results["center_shift"]:.3f}\t{results["norm_delta"]}\t{results["processing_time"]}\n")
-
+        for metric_name in metric_names:
+            metric_averages = []
+            for approach, values in metrics.items():
+                average = np.mean(values[metric_name])
+                metric_averages.append(average)
+            
+            row = f"{metric_name.replace('_', ' ').capitalize()} & "
+            row += " & ".join([f"{avg:.4f}" for avg in metric_averages])
+            row += " \\\\\n"
+            f.write(row)
+    print(f"Metrics averages logged to {log_file}")
 
 def load_dataset(file_path, subset_size=None):
     data = scipy.io.loadmat(file_path)["A"]
@@ -324,6 +330,8 @@ def run():
             f"Processed with {approach} approach for {approach_processing_time} seconds")
 
     visualize_results(metrics)
+
+    log_metrics(metrics)
 
     end_total_time = time.process_time_ns()
 
