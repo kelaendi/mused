@@ -2,6 +2,25 @@ import numpy as np
 from sklearn.metrics import (normalized_mutual_info_score, f1_score as sklearn_f1_score, precision_score, recall_score, accuracy_score,
                              silhouette_score as sklearn_silhouette_score, davies_bouldin_score, average_precision_score, roc_auc_score, mean_absolute_error)
 
+def get_initial_results_by_subset():
+    results = {
+        "subset_sizes": [],
+        "nmi_score": [],
+        "f1_score": [],
+        "precision": [],
+        "recall": [],
+        "accuracy": [],
+        # "db_index": [],
+        # "dunn_index": [],
+        # "map_score": [],
+        # "auc_score": [],
+        "mae": [],
+        # "silhouette_score": [],
+        # "norm_delta": [],
+        # "processing_time": [],
+    }
+    return results
+
 def get_initial_results():
     results = {
         "window_indices": [],
@@ -19,6 +38,47 @@ def get_initial_results():
         # "norm_delta": [],
         # "processing_time": [],
     }
+    return results
+
+def compute_all_metrics_by_subset(results, subset_size, clusters, true_labels, end_time, start_time):
+    
+    results["subset_sizes"].append(subset_size)
+    
+    if "nmi_score" in results:
+        nmi_score = normalized_mutual_info_score(true_labels, clusters)
+        results["nmi_score"].append(nmi_score)
+        print(f"nmi={nmi_score}")
+
+    if "f1_score" in results:
+        f1_score = sklearn_f1_score(true_labels, clusters, average='weighted', zero_division=0)
+        results["f1_score"].append(f1_score)
+        print(f"f1={f1_score}")
+
+    if "precision" in results:
+        precision = precision_score(true_labels, clusters, average='weighted', zero_division=0)
+        results["precision"].append(precision)
+        print(f"precision={precision}")
+
+    if "recall" in results:
+        recall = recall_score(true_labels, clusters, average='weighted', zero_division=0)
+        results["recall"].append(recall)
+        print(f"recall={recall}")
+
+    if "accuracy" in results:
+        accuracy = accuracy_score(true_labels, clusters)
+        results["accuracy"].append(accuracy)
+        print(f"accuracy={accuracy}")
+
+    if "mae" in results:
+        mae = mean_absolute_error(true_labels, clusters)
+        results["mae"].append(mae)
+        print(f"mae={mae}")
+
+    if "processing_time" in results:
+        processing_time = (end_time - start_time) / 1e9
+        results["processing_time"].append(processing_time)
+        print(f"processing_time={processing_time}")
+
     return results
 
 def compute_all_metrics(results, i, fused_matrix, reduced_matrix, clusters, n_clusters, window_end_time, window_start_time, added_processing_time, true_labels):
