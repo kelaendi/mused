@@ -21,8 +21,7 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt"
-	//&& chmod +x ./setup_datasets.sh && ./setup_datasets.sh"
+	"postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt && chmod +x ./setup_datasets.sh && ./setup_datasets.sh"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
