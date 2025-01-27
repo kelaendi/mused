@@ -9,12 +9,16 @@ from swfd import SeqBasedSWFD
 
 def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, step_window_ratio=1):
 
-    total_size = len(data_modalities[0])
+    subset_size = len(data_modalities[0])
     print(f"len(data_modalities[0]) = {len(data_modalities[0])}")
+
+    total_start_time = time.process_time_ns()
+
     window = deque(maxlen=window_size)
     
     sketches = []
-    added_processing_time = 0
+
+    total_processing_time = 0
 
     # To store clusters and labels for the entire subset
     all_clusters = []
@@ -33,10 +37,10 @@ def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_di
             max_norm = np.max(np.linalg.norm(modality, axis=1)**2)
             sketches.append(SeqBasedSWFD(window_size, R=max_norm, d=modality.shape[1], sketch_dim=reduced_dim))
         end_time = time.process_time_ns()
-        added_processing_time += (end_time - start_time)
+        total_processing_time += (end_time - start_time)
 
     # Simulate streaming data, updating sketch with each arriving datapoint
-    for i in range(total_size):
+    for i in range(subset_size):
         # Collect a single data point from each modality
         data_point = [modality[i:i+1] for modality in data_modalities]
         window.append(data_point)
@@ -102,13 +106,7 @@ def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_di
             true_labels = complete_true_labels[i - len(reduced_matrix) + 1:i + 1]
             all_true_labels.extend(true_labels)
 
-    # if approach == "SWFD_first":
-    #     # Get fused and not yet reduced matrix for norm delta comparison
-    #     adjacency_matrices = []
-    #     for m_index, modality in enumerate(data_modalities):
-    #         A_w = np.concatenate([point[m_index] for point in window], axis=0)
-    #         adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1)))
-    #     fused_matrix = fuse_matrices(adjacency_matrices)
+    total_end_time = time.process_time_ns()
 
     # Compute metrics for the entire subset
     all_true_labels = np.array(all_true_labels)
@@ -119,9 +117,8 @@ def process_streaming_data(data_modalities, window_size, k_neighbors, reduced_di
 
     # Compute metrics for the entire subset
     results = metrics_evaluation.get_initial_results()
-    results = metrics_evaluation.compute_all_metrics(
-        results, i, None, None, all_clusters, n_clusters, 0, 0, added_processing_time, all_true_labels
-    )
+    results = metrics_evaluation.compute_all_metrics_by_subset(results, subset_size, all_clusters, all_true_labels, total_end_time, total_start_time)
+
     return results
 
 def run():
@@ -195,9 +192,9 @@ def run():
 
     print("Metrics:", metrics)
 
-    output_generation.visualize_results(metrics, string_to_add=details_string)
+    output_generation.visualize_results_by_subset_size(metrics, string_to_add=details_string)
 
-    output_generation.log_metrics(metrics, string_to_add=details_string)
+    # output_generation.log_metrics_by_subset_size(metrics, string_to_add=details_string)
 
     end_total_time = time.process_time_ns()
 
