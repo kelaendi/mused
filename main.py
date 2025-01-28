@@ -112,8 +112,8 @@ def run():
     # Parameters
     seed = 0
     subset_sizes = [1000, 2000, 4000, 8000]  # Example sizes
-    noise_rates = [0, 25, 50, 95]
-    # noise_rate = noise_rates[-1]
+    noise_rates = [0, .25, .50, .95]
+    noise_rate = noise_rates[2]
     max_subset_size = max(subset_sizes)
     window_size = 1000
     reduced_dim = 80
@@ -131,17 +131,21 @@ def run():
     match label_mode:
         case "binary":
             n_clusters = 2
-            modalities, truth_labels = data_loader.load_sed2012_dataset(subset_size=max_subset_size, binary=True, event_types=True, sort_by_uploaded=sorting)
-    
+            binary = True
+            by_types = True
         case "types":
             n_clusters = 4
-            modalities, truth_labels = data_loader.load_sed2012_dataset(subset_size=max_subset_size, binary=False, event_types=True, sort_by_uploaded=sorting)
-    
+            binary = False
+            by_types = True
         case _:
             n_clusters = 0
-            modalities, truth_labels = data_loader.load_sed2012_dataset(subset_size=max_subset_size, binary=False, event_types=False, sort_by_uploaded=sorting)
+            binary = False
+            by_types = False
+            
+    modalities, truth_labels = data_loader.load_sed2012_dataset(subset_size=max_subset_size, binary=binary, event_types=by_types, sort_by_uploaded=sorting, noise_rate=noise_rate)
     
     noise_rate = np.sum(truth_labels == 0) / len(truth_labels)
+    print(f"actual noise rate: {noise_rate}")
     details_string = f"_mode={label_mode},sorted={sorting},noise={noise_rate},window={window_size},subset={max_subset_size},k={k_neighbors},dim={reduced_dim}"
 
     approaches = [

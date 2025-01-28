@@ -5,14 +5,7 @@ import xml.dom.minidom as dom
 import time
 import datetime
 
-def load_synthetic_dataset(subset_size=None):
-	file_path = "swfd/dataset/synthetic_n=500000,m=10,d=300,zeta=10.mat"
-	data = scipy.io.loadmat(file_path)["A"]
-	if subset_size is not None and subset_size > 0 and subset_size < len(data):
-		data = data[:subset_size]
-	return [data.astype(np.float64)]
-
-def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=False, binary=False):
+def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=False, binary=False, noise_rate=0.95):
 	# File paths for metadata and ground truth per challenge
 	metadata_file = "dataset/sed2012/sed2012_metadata.xml"
 	technical_file = "dataset/sed2012/technical_events.txt"
@@ -41,14 +34,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	# Parse metadata and create DataFrame
 	df = get_modalities(ground_truth, metadata_file)
 
-	if sort_by_uploaded:
-		df = df.sort_values(by='dateupload')
-
-	if subset_size < len(df):
-		df = df.head(subset_size)
-		# df = df.groupby('event_id', group_keys=False).apply(lambda x: x.sample(min(len(x), subset_size // len(df['event_id'].unique()))))
-
-
 	if binary:
 		df['event_type'] = df['event_id'].apply(
 		lambda eid: 1 if min_technical <= eid <= max_indignados else
@@ -61,6 +46,41 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 					3 if min_indignados <= eid <= max_indignados else
 					0  # Default to 0 for unknown/other
 		)
+	
+	# Ground truth labels
+	labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
+	print(f"Unique labels: {np.unique(labels)}")
+
+	subset_size = min(subset_size, len(df))
+
+	rng = np.random.default_rng(0)
+
+	if 0 <= noise_rate < 1.0:
+		print(noise_rate)
+		# Split noise (labels == 0) and event (labels > 0)
+		noise_indices = np.where(labels == 0)[0]
+		event_indices = np.where(labels > 0)[0]
+		print(f"total amount of event indices: {len(event_indices)}")
+
+		num_events = min(int((1-noise_rate) * subset_size), len(event_indices))
+		num_noise = subset_size - num_events
+	
+    	# Randomly sample noise and event indices
+		sampled_noise_indices = rng.choice(noise_indices, num_noise, replace=False)
+		sampled_event_indices = rng.choice(event_indices, num_events, replace=False)
+
+		# Combine sampled indices and shuffle
+		sampled_indices = np.concatenate([sampled_noise_indices, sampled_event_indices])
+		sampled_indices = np.sort(sampled_indices)
+
+		# Subset the data and labels
+		df = df.iloc[sampled_indices]
+
+		# Get the labels again
+		labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
+
+	if sort_by_uploaded:
+		df = df.sort_values(by='dateupload')
 
 	# Modality 1: Time data (date taken and uploaded)
 	df['datetaken'] = df['datetaken'].replace(['0000-00-00 00:00:00'], '1970-01-01 00:00:00').apply(convertToTimestamp)
@@ -72,10 +92,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 
 	# Modality 3: Text data / Tags (placeholder: tag count)
 	tags_modality = df['tag'].apply(lambda x: len(x.split()) if isinstance(x, str) else 0).to_numpy().reshape(-1, 1)
-
-	# Ground truth labels
-	labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
-	print(f"Unique labels: {np.unique(labels)}")
 
 	# Sanity check to ensure alignment
 	assert time_modality.shape[0] == location_modality.shape[0] == tags_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
@@ -147,3 +163,10 @@ def get_modalities(ground_truth, metadata_path):
 
 def convertToTimestamp(x):
     return time.mktime(datetime.datetime.strptime(x,"%Y-%m-%d %H:%M:%S.%f").timetuple())
+
+def load_synthetic_dataset(subset_size=None):
+	file_path = "swfd/dataset/synthetic_n=500000,m=10,d=300,zeta=10.mat"
+	data = scipy.io.loadmat(file_path)["A"]
+	if subset_size is not None and subset_size > 0 and subset_size < len(data):
+		data = data[:subset_size]
+	return [data.astype(np.float64)]
