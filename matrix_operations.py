@@ -3,14 +3,28 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import TruncatedSVD
 from sklearn.cluster import KMeans
 
-def create_adjacency_matrix(data, k):
-    nbrs = NearestNeighbors(n_neighbors=max(1,k), algorithm='auto').fit(data)
-    distances, indices = nbrs.kneighbors(data)
+def create_adjacency_matrix(data, k, modality_type):
+    modality_type="" # set to empty string for now
     matrix = np.zeros((len(data), len(data)))
-    for i in range(len(data)):
-        for j in indices[i]:  # i.e. for each of the k nearest neighbors
-            matrix[i, j] = 1
-            matrix[j, i] = 1
+    #maybe set different ks and weights depending on modality type
+
+    match modality_type:
+        case "location":
+            # Nearest neighbors ok, but haversine distance would be better
+            print(modality_type)
+        case "time":
+            # Absolute difference instead?
+            print(modality_type)
+        case "tags":
+            # Categorical -> cosine similarity. but it's a list of tags, though
+            print(modality_type)
+        case _:
+            nbrs = NearestNeighbors(n_neighbors=max(1,k), algorithm='auto').fit(data)
+            distances, indices = nbrs.kneighbors(data)
+            for i in range(len(data)):
+                for j in indices[i]:  # i.e. for each of the k nearest neighbors
+                    matrix[i, j] = 1
+                    matrix[j, i] = 1
     return matrix
 
 def fuse_matrices(matrices):

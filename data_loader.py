@@ -97,7 +97,7 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	assert time_modality.shape[0] == location_modality.shape[0] == tags_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
 
 	# Return modalities and labels
-	return [location_modality, time_modality, tags_modality], labels
+	return [location_modality, time_modality, tags_modality], ["location", "time", "tags"], labels
 
 def create_array(lines, ground_truth, class_counter=1):
 	arr = []
