@@ -4,10 +4,10 @@ from sklearn.metrics import (normalized_mutual_info_score, f1_score as sklearn_f
 def get_initial_results():
     results = {
         # possible independent variables
-        "subset_sizes": [],
-        "noise_rates":[],
-        "label_modes":[],
-        "sortings": [],
+        "subset_size": [],
+        "noise_rate":[],
+        "label_mode":[],
+        "sorting": [],
 
         # the actual metrics
         "nmi_score": [],
@@ -20,19 +20,19 @@ def get_initial_results():
     }
 
     independent_variables = [
-        "subset_sizes",
-        "noise_rates",
-        "label_modes",
-        "sortings",
+        "subset_size",
+        "noise_rate",
+        "label_mode",
+        "sorting",
         ]
     return results, independent_variables
 
 def compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, clusters, true_labels, end_time, start_time):
     
-    results["subset_sizes"].append(subset_size)
-    results["noise_rates"].append(noise_rate)
-    results["label_modes"].append(label_mode)
-    results["sortings"].append(sorting)
+    results["subset_size"].append(subset_size)
+    results["noise_rate"].append(noise_rate)
+    results["label_mode"].append(label_mode)
+    results["sorting"].append(sorting)
     
     if "nmi_score" in results:
         nmi_score = normalized_mutual_info_score(true_labels, clusters)

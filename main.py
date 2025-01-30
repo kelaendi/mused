@@ -149,113 +149,121 @@ def process_batch_data(results, data_modalities, k_neighbors, reduced_dim, n_clu
 
     return results
 
-def run():
-    # Parameters
-    seed = 0
-    subset_sizes = [1000, 2000, 4000, 8000]  # Example sizes
-    noise_rates = [0, .25, .50, .95]
-    noise_rate = noise_rates[2]
-    max_subset_size = max(subset_sizes)
-    window_size = 1000
-    reduced_dim = 80
-    k_neighbors = 50
-    n_clusters = 0 #event related vs not #4  # technical, soccer, indignados
-    step_window_ratio= 1
-    label_modes = ["binary", "types", "all"]
-    label_mode = label_modes[0]
-    sorting = True
-    np.random.seed(seed)
-
-    # Decide on defaults for all independent variables, maybe 4000 subset, 50% noise, binary mode, non sorted
-
-    print("Loading dataset...")
-    match label_mode:
-        case "binary":
-            n_clusters = 2
-            binary = True
-            by_types = True
-        case "types":
-            n_clusters = 4
-            binary = False
-            by_types = True
-        case _:
-            n_clusters = 0
-            binary = False
-            by_types = False
-            
-    modalities, truth_labels = data_loader.load_sed2012_dataset(subset_size=max_subset_size, binary=binary, event_types=by_types, sort_by_uploaded=sorting, noise_rate=noise_rate)
-    
-    noise_rate = np.sum(truth_labels == 0) / len(truth_labels)
-    print(f"actual noise rate: {noise_rate}")
-    details_string = f"_mode={label_mode},sorted={sorting},noise={noise_rate},window={window_size},subset={max_subset_size},k={k_neighbors},dim={reduced_dim}"
-
-    approaches = [
-        "SVD_batch",
-        "naive", 
-        "SVD", 
-        # "SWFD_first"
-        ]
-    
+def run_experiment(experiment_type, variable_values, approaches, fixed_params):
+    start_experiment_time = time.time_ns()
+    params = fixed_params.copy()
     metrics = {}
 
-    start_total_time = time.time_ns()
-
     for approach in approaches:
-        print(f"Start processing with {approach} approach...")
+        print(f"Processing with approach: {approach}")
         results, independent_variables = metrics_evaluation.get_initial_results()
         start_approach_time = time.time_ns()
 
-        for size in subset_sizes:
-            print(f"Processing subset size: {size}")
-            subset_modalities = [modality[:size] for modality in modalities]
-            subset_labels = truth_labels[:size]
+        for var_value in variable_values:
+            params[experiment_type] = var_value
+
+            # subset_modalities = [modality[:size] for modality in modalities]
+            # subset_labels = truth_labels[:size]
+
+            print(f"Running experiment with {experiment_type} = {var_value}")
+            n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 0
+
+            modalities, truth_labels = data_loader.load_sed2012_dataset(
+                subset_size=params["subset_size"], 
+                binary=(params["label_mode"] == "binary"), 
+                event_types=(params["label_mode"] != "all"), 
+                sort_by_uploaded=params["sorting"], 
+                noise_rate=params["noise_rate"]
+            )
+
+            params["noise_rate"] = np.sum(truth_labels == 0) / len(truth_labels)
+            print(f'actual noise rate: {params["noise_rate"]}')
 
             if approach.endswith("_batch"):
                 results = process_batch_data(
-                    results,
-                    subset_modalities,
-                    k_neighbors,
-                    reduced_dim,
-                    n_clusters,
-                    seed,
-                    approach,
-                    subset_labels,
-                    noise_rate, 
-                    label_mode, 
-                    sorting
+                    results=results,
+                    data_modalities=modalities,
+                    k_neighbors=params["k_neighbors"],
+                    reduced_dim=params["reduced_dim"],
+                    n_clusters=n_clusters,
+                    seed=params["seed"],
+                    approach=approach,
+                    complete_true_labels=truth_labels,
+                    noise_rate=params["noise_rate"],
+                    label_mode=params["label_mode"],
+                    sorting=params["sorting"],
                 )
+
             else:
                 results = process_streaming_data(
-                    results,
-                    subset_modalities,
-                    window_size,
-                    k_neighbors,
-                    reduced_dim,
-                    n_clusters,
-                    seed,
-                    approach,
-                    subset_labels,
-                    step_window_ratio,
-                    noise_rate, 
-                    label_mode, 
-                    sorting
+                    results=results,
+                    data_modalities=modalities,
+                    window_size=params["window_size"],
+                    k_neighbors=params["k_neighbors"],
+                    reduced_dim=params["reduced_dim"],
+                    n_clusters=n_clusters,
+                    seed=params["seed"],
+                    approach=approach,
+                    complete_true_labels=truth_labels,
+                    step_window_ratio=params["step_window_ratio"],
+                    noise_rate=params["noise_rate"],
+                    label_mode=params["label_mode"],
+                    sorting=params["sorting"],
                 )
-            end_approach_time = time.time_ns()
-            approach_processing_time = (end_approach_time - start_approach_time) / 1e9
-            print(f"Processed with {approach} approach for {approach_processing_time} seconds")
+        
+        end_approach_time = time.time_ns()
+        approach_processing_time = (end_approach_time - start_approach_time) / 1e9
+        print(f'Processed with {approach} approach, with {experiment_type}={var_value}  for {approach_processing_time} seconds')
         metrics[approach] = results
-
     print("Metrics:", metrics)
-
-    output_generation.visualize_results(metrics, "subset_sizes", independent_variables, string_to_add=details_string)
-
-    end_total_time = time.time_ns()
-
-    total_processing_time = ((end_total_time - start_total_time) / 1e9 )/60
+                
+    details_string = f'_mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},k={params["k_neighbors"]},dim={params["reduced_dim"]}'
+    output_generation.visualize_results(metrics=metrics, independent_variable=experiment_type, independent_variables=independent_variables, string_to_add=details_string)
+    
+    end_experiment_time = time.time_ns()
+    experiment_processing_time = ((end_experiment_time - start_experiment_time) / 1e9 )/60
 
     print(f"Finished all processing for {details_string}")
-    print(f"Total processing time: {total_processing_time} minutes")
-
+    print(f"Experiment processing time: {experiment_processing_time} minutes")
 
 if __name__ == "__main__":
-    run()
+    seed = 0
+    np.random.seed(seed)
+    fixed_params = {
+        "seed": seed,
+        "subset_size": 4000,
+        "noise_rate": 0.5,
+        "label_mode": "binary", #"types",
+        "sorting": False, #True,
+        "window_size": 1000,
+        "reduced_dim": 80,
+        "k_neighbors": 50,
+        "step_window_ratio": 1,
+    }
+
+    # Define experiments
+    experiments = {
+        "subset_size": [2000, 4000, 6000, 8000],
+        "noise_rate": [.25, .50, .95],
+        # "label_mode": ["binary", "types", "all"],
+        "sorting": [True, False],
+    }
+
+    # Approaches
+    approaches = [
+        # "naive", 
+        "SVD", 
+        "SVD_batch",
+        # "SWFD_first",
+        ]
+    
+    start_total_time = time.time_ns()
+
+    # Run experiments
+    for experiment_type, variable_values in experiments.items():
+        print(f"Running experiment for {experiment_type}")
+        run_experiment(experiment_type, variable_values, approaches, fixed_params)
+
+    end_total_time = time.time_ns()
+    total_processing_time = ((end_total_time - start_total_time) / 1e9 )/60
+    print(f"Total processing time: {total_processing_time} minutes")
