@@ -108,6 +108,47 @@ def process_streaming_data(results, data_modalities, window_size, k_neighbors, r
 
     return results
 
+def process_batch_data(results, data_modalities, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting):
+
+    subset_size = len(data_modalities[0])
+    print(f"subset_size = {subset_size}")
+
+    total_start_time = time.time_ns()
+
+    if approach == "SVD_batch":
+        # Fuse data
+        adjacency_matrices = []
+        for m_index, modality in enumerate(data_modalities):
+            A_w = modality
+            adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1)))
+        fused_matrix = fuse_matrices(adjacency_matrices)
+
+        # Reduce with SVD
+        reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
+    
+    elif approach == "SED":
+        reduced_matrix = data_modalities
+
+    else:
+        reduced_matrix = data_modalities
+
+    # Clustering
+    all_clusters = perform_clustering(reduced_matrix, n_clusters, seed)
+
+    total_end_time = time.time_ns()
+
+    # Compute metrics for the entire subset
+    all_true_labels = np.array(complete_true_labels)
+    all_clusters = np.array(all_clusters)
+
+    print(f"all_true_labels.shape: {all_true_labels.shape}, all_clusters.shape: {all_clusters.shape}")
+    print(f"Unique labels: {np.unique(all_true_labels)}")
+
+    # Compute metrics for the entire subset
+    results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, all_clusters, all_true_labels, total_end_time, total_start_time)
+
+    return results
+
 def run():
     # Parameters
     seed = 0
@@ -149,6 +190,7 @@ def run():
     details_string = f"_mode={label_mode},sorted={sorting},noise={noise_rate},window={window_size},subset={max_subset_size},k={k_neighbors},dim={reduced_dim}"
 
     approaches = [
+        "SVD_batch",
         "naive", 
         "SVD", 
         # "SWFD_first"
@@ -168,21 +210,36 @@ def run():
             subset_modalities = [modality[:size] for modality in modalities]
             subset_labels = truth_labels[:size]
 
-            results = process_streaming_data(
-                results,
-                subset_modalities,
-                window_size,
-                k_neighbors,
-                reduced_dim,
-                n_clusters,
-                seed,
-                approach,
-                subset_labels,
-                step_window_ratio,
-                noise_rate, 
-                label_mode, 
-                sorting
-            )
+            if approach.endswith("_batch"):
+                results = process_batch_data(
+                    results,
+                    subset_modalities,
+                    k_neighbors,
+                    reduced_dim,
+                    n_clusters,
+                    seed,
+                    approach,
+                    subset_labels,
+                    noise_rate, 
+                    label_mode, 
+                    sorting
+                )
+            else:
+                results = process_streaming_data(
+                    results,
+                    subset_modalities,
+                    window_size,
+                    k_neighbors,
+                    reduced_dim,
+                    n_clusters,
+                    seed,
+                    approach,
+                    subset_labels,
+                    step_window_ratio,
+                    noise_rate, 
+                    label_mode, 
+                    sorting
+                )
             end_approach_time = time.time_ns()
             approach_processing_time = (end_approach_time - start_approach_time) / 1e9
             print(f"Processed with {approach} approach for {approach_processing_time} seconds")
