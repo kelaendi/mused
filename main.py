@@ -10,7 +10,6 @@ from swfd import SeqBasedSWFD
 def process_streaming_data(results, data_modalities, modality_types, window_size, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting):
 
     subset_size = len(data_modalities[0])
-    print(f"subset_size = {subset_size}")
 
     total_start_time = time.time_ns()
 
@@ -47,6 +46,12 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
         # Only process once we have a full window
         if len(window) == window_size and (i + 1)*step_window_ratio % window_size == 0:
             print(f"i={i}")
+
+            true_labels = complete_true_labels[i - len(window) + 1:i + 1]
+            all_true_labels.extend(true_labels)
+
+            n_clusters = len(np.unique(all_true_labels))
+            print(f"Amount of unique labels in this window: {n_clusters}")
 
             if approach == "naive":
                 # Fuse data
@@ -89,10 +94,8 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             # Clustering
             clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
-            # Accumulate all clusters and true labels
+            # Accumulate all clusters
             all_clusters.extend(clusters)
-            true_labels = complete_true_labels[i - len(reduced_matrix) + 1:i + 1]
-            all_true_labels.extend(true_labels)
 
     total_end_time = time.time_ns()
 
@@ -100,8 +103,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     all_true_labels = np.array(all_true_labels)
     all_clusters = np.array(all_clusters)
 
-    print(f"all_true_labels.shape: {all_true_labels.shape}, all_clusters.shape: {all_clusters.shape}")
-    print(f"Unique labels: {np.unique(all_true_labels)}")
+    print(f"Amount of unique labels in total: {len(np.unique(all_true_labels))}")
 
     # Compute metrics for the entire subset
     results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, all_clusters, all_true_labels, total_end_time, total_start_time)
@@ -111,7 +113,6 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 def process_batch_data(results, data_modalities, modality_types, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting):
 
     subset_size = len(data_modalities[0])
-    print(f"subset_size = {subset_size}")
 
     total_start_time = time.time_ns()
 
@@ -141,8 +142,7 @@ def process_batch_data(results, data_modalities, modality_types, k_neighbors, re
     all_true_labels = np.array(complete_true_labels)
     all_clusters = np.array(all_clusters)
 
-    print(f"all_true_labels.shape: {all_true_labels.shape}, all_clusters.shape: {all_clusters.shape}")
-    print(f"Unique labels: {np.unique(all_true_labels)}")
+    print(f"Amount of unique labels in total: {len(np.unique(all_true_labels))}")
 
     # Compute metrics for the entire subset
     results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, all_clusters, all_true_labels, total_end_time, total_start_time)
@@ -166,7 +166,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params):
             # subset_labels = truth_labels[:size]
 
             print(f"Running experiment with {experiment_type} = {var_value}")
-            n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 0
+            n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 150
 
             modalities, modality_types, truth_labels = data_loader.load_sed2012_dataset(
                 subset_size=params["subset_size"], 
@@ -230,14 +230,21 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params):
 
 if __name__ == "__main__":
     seed = 0
+    label_modes = ["binary", "types", "all"]
+    subset_sizes = [2000, 4000, 6000, 8000]
+    noise_rates = [0.05, 0.25, 0.50, 0.75, .95]
+    label_modes = ["binary", "types", "all"]
+    window_sizes = [500, 1000, 2000]
+    sortings = [False, True]
+
     np.random.seed(seed)
     fixed_params = {
         "seed": seed,
-        "subset_size": 4000,
-        "noise_rate": 0.5,
-        "label_mode": "binary", #"types",
-        "sorting": False, #True,
-        "window_size": 2000,
+        "subset_size": subset_sizes[1],
+        "noise_rate": noise_rates[2],
+        "label_mode": label_modes[2],
+        "sorting": sortings[0],
+        "window_size": window_sizes[1],
         "reduced_dim": 80,
         "k_neighbors": 50,
         "step_window_ratio": 1,
@@ -245,10 +252,10 @@ if __name__ == "__main__":
 
     # Define experiments
     experiments = {
-        "subset_size": [2000, 4000, 6000, 8000],
-        "noise_rate": [.25, .50, .95],
-        # "label_mode": ["binary", "types", "all"],
-        "sorting": [True, False],
+        "subset_size": subset_sizes,
+        "noise_rate": noise_rates,
+        "label_mode": label_modes,
+        "sorting": sortings,
     }
 
     # Approaches
