@@ -4,6 +4,7 @@ import pandas as pd
 import xml.dom.minidom as dom
 import time
 import datetime
+import re
 
 def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=False, binary=False, noise_rate=0.95):
 	# File paths for metadata and ground truth per challenge
@@ -49,7 +50,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	
 	# Ground truth labels
 	labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
-	print(f"Unique labels: {np.unique(labels)}")
 
 	subset_size = min(subset_size, len(df))
 
@@ -60,7 +60,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 		# Split noise (labels == 0) and event (labels > 0)
 		noise_indices = np.where(labels == 0)[0]
 		event_indices = np.where(labels > 0)[0]
-		print(f"total amount of event indices: {len(event_indices)}")
 
 		num_events = min(int((1-noise_rate) * subset_size), len(event_indices))
 		num_noise = subset_size - num_events
@@ -91,13 +90,13 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	location_modality = df[['latitude', 'longitude']].fillna(-1).to_numpy()
 
 	# Modality 3: Text data / Tags (placeholder: tag count)
-	tags_modality = df['tag'].apply(lambda x: len(x.split()) if isinstance(x, str) else 0).to_numpy().reshape(-1, 1)
-
+	text_modality = df[['username','title','description','tags']].to_numpy()
+	
 	# Sanity check to ensure alignment
-	assert time_modality.shape[0] == location_modality.shape[0] == tags_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
+	assert time_modality.shape[0] == location_modality.shape[0] == text_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
 
 	# Return modalities and labels
-	return [location_modality, time_modality, tags_modality], ["location", "time", "tags"], labels
+	return [location_modality, time_modality, text_modality], ["location", "time", "text"], labels
 
 def create_array(lines, ground_truth, class_counter=1):
 	arr = []
@@ -121,45 +120,57 @@ def get_modalities(ground_truth, metadata_path):
 	for photo in photos:
 		id = photo.getAttributeNode("id").nodeValue
 		if id in ground_truth.keys():
-			_class = ground_truth[id]
+			event_id = ground_truth[id]
 		else:
-			_class = 0
+			event_id = 0
 
-		datetaken = photo.getAttributeNode("dateTaken").nodeValue
-		dateupload = photo.getAttributeNode("dateUploaded").nodeValue
+		datetaken = photo.getAttributeNode("dateTaken").nodeValue.strip()
+		dateupload = photo.getAttributeNode("dateUploaded").nodeValue.strip()
 
 		try:
 			location = photo.getElementsByTagName("location")[0]
-			lattitude = float(location.getAttributeNode("latitude").nodeValue)
+			latitude = float(location.getAttributeNode("latitude").nodeValue)
 			longitude = float(location.getAttributeNode("longitude").nodeValue)
 		except:
-			lattitude = -1
-			longitude = -1
+			latitude, longitude = -1, -1
 
 		try:
-			tags = [tag.firstChild.data for tag in photo.getElementsByTagName("tag")]
-			tags = " ".join(tags)
+			tags = [tag.firstChild.data.strip() for tag in photo.getElementsByTagName("tag")]
+			# tags = " ".join(tags)
 		except:
-			tags = ""
+			# tags = ""
+			tags = []
 
 		try:
 			title = photo.getElementsByTagName("title")[0].firstChild.nodeValue
+			title = clean_text(title)
 		except:
 			title = ""
 
 		try:
 			description = photo.getElementsByTagName("description")[0].firstChild.nodeValue
+			description = clean_text(description)
 		except:
 			description = ""
 
-		user = photo.getAttributeNode("dateTaken").nodeValue
+		try:
+			user = photo.getAttributeNode("username").nodeValue.strip()
+		except:
+			user = ""
 
-		A.append([id, datetaken, dateupload, lattitude, longitude, title, description, tags, user, _class])
+		A.append([id, datetaken, dateupload, latitude, longitude, title, description, tags, user, event_id])
 
-	df = pd.DataFrame(A, columns=['flickr_picture_id', 'datetaken', 'dateupload', 'latitude', 'longitude', 'title', 'description', 'tag', 'username', 'event_id'])
+	df = pd.DataFrame(A, columns=['id', 'datetaken', 'dateupload', 'latitude', 'longitude', 'title', 'description', 'tags', 'username', 'event_id'])
 
-	df['flickr_picture_id'] = df['flickr_picture_id'].astype(int)
+	df['id'] = df['id'].astype(int)
 	return df
+
+def clean_text(text):
+    text = text.strip()  # Remove leading/trailing spaces & newlines
+    text = re.sub(r"<.*?>", " ", text)  # Remove HTML tags
+    text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)  # Keep only words, numbers, and spaces
+    text = re.sub(r"\s+", " ", text)  # Replace multiple spaces with single space
+    return text.strip()
 
 def convertToTimestamp(x):
     return time.mktime(datetime.datetime.strptime(x,"%Y-%m-%d %H:%M:%S.%f").timetuple())
