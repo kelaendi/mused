@@ -53,13 +53,14 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             n_clusters = len(np.unique(all_true_labels))
             print(f"Amount of unique labels in this window: {n_clusters}")
 
-            if approach == "naive":
+            if approach == "SWFD_after":
                 # Fuse data
                 adjacency_matrices = []
                 for m_index, modality in enumerate(data_modalities):
                     A_w = np.concatenate([point[m_index] for point in window], axis=0)
                     adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1), modality_types[m_index]))
                 fused_matrix = fuse_matrices(adjacency_matrices)
+                print(f"fused matrix shape: {fused_matrix.shape}")
 
                 # Reduce with SWFD sketching
                 max_norm = np.max(np.linalg.norm(fused_matrix, axis=1)**2)
@@ -67,6 +68,10 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 for row in fused_matrix:
                     swfd.fit(row[np.newaxis, :])
                 reduced_matrix, _, _, _ = swfd.get()
+                if reduced_matrix.shape[0] != window_size:
+                    print(f"reduced matrix shape: {reduced_matrix.shape}")
+                    reduced_matrix = reduced_matrix.T
+                    print(f"Tnsposed it to {reduced_matrix.shape}")
 
             elif approach == "SVD":
                 # Fuse data
@@ -149,7 +154,7 @@ def process_batch_data(results, data_modalities, modality_types, k_neighbors, re
 
     return results
 
-def run_experiment(experiment_type, variable_values, approaches, fixed_params):
+def run_experiment(experiment_type, variable_values, approaches, fixed_params, count):
     start_experiment_time = time.time_ns()
     params = fixed_params.copy()
     metrics = {}
@@ -220,7 +225,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params):
     print("Metrics:", metrics)
                 
     details_string = f'_mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},k={params["k_neighbors"]},dim={params["reduced_dim"]}'
-    output_generation.visualize_results(metrics=metrics, independent_variable=experiment_type, independent_variables=independent_variables, string_to_add=details_string)
+    output_generation.visualize_results(metrics=metrics, independent_variable=experiment_type, independent_variables=independent_variables, string_to_add=details_string, save_path="plots/")
     
     end_experiment_time = time.time_ns()
     experiment_processing_time = ((end_experiment_time - start_experiment_time) / 1e9 )/60
@@ -228,21 +233,26 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params):
     print(f"Finished all processing for {details_string}")
     print(f"Experiment processing time: {experiment_processing_time} minutes")
 
+    return count + 1
+
 if __name__ == "__main__":
+    start_total_time = time.time_ns()
     seed = 0
+    subset_sizes = [4000, 6000, 8000, 12000, 14000] #[5000, 10000, 15000]
+    big_subset_sizes = [8000, 12000, 16000, 17000, 18000]# 20000] # 32000, 64000, 128000]
+    noise_rates = [0.05, 0.25, 0.50, 0.75, .95] #[0.05, 0.25, 0.50, 0.75, .95]
+    big_noise_rates = [0.50, 0.75, .95]
     label_modes = ["binary", "types", "all"]
-    subset_sizes = [2000, 4000, 6000, 8000]
-    noise_rates = [0.05, 0.25, 0.50, 0.75, .95]
-    label_modes = ["binary", "types", "all"]
-    window_sizes = [500, 1000, 2000]
     sortings = [False, True]
+    window_sizes = [500, 1000, 2000]
+    count = 0
 
     np.random.seed(seed)
     fixed_params = {
         "seed": seed,
-        "subset_size": subset_sizes[1],
+        "subset_size": subset_sizes[2],
         "noise_rate": noise_rates[2],
-        "label_mode": label_modes[2],
+        "label_mode": label_modes[0],
         "sorting": sortings[0],
         "window_size": window_sizes[1],
         "reduced_dim": 80,
@@ -260,19 +270,57 @@ if __name__ == "__main__":
 
     # Approaches
     approaches = [
-        # "naive", 
+        # "SWFD_after", 
         "SVD", 
         "SVD_batch",
         # "SWFD_first",
         ]
-    
-    start_total_time = time.time_ns()
 
     # Run experiments
     for experiment_type, variable_values in experiments.items():
         print(f"Running experiment for {experiment_type}")
-        run_experiment(experiment_type, variable_values, approaches, fixed_params)
+        count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
+
+    print(f"Now let's change the window sizw")
+
+    fixed_params["window_size"] = window_sizes[2]
+
+    # Run experiments
+    for experiment_type, variable_values in experiments.items():
+        print(f"Running experiment for {experiment_type}")
+        count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
+
+    # print(f"Now let's change the default label mode to types")
+
+    # fixed_params["label_mode"] = label_modes[1]
+
+    # # Run experiments
+    # for experiment_type, variable_values in experiments.items():
+    #     print(f"Running experiment for {experiment_type}")
+    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
+
+    # print(f"Now let's change the sorting to True")
+
+    # fixed_params["sorting"] = sortings[1]
+
+    # # Run experiments
+    # for experiment_type, variable_values in experiments.items():
+    #     print(f"Running experiment for {experiment_type}")
+    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
+
+    # print(f"Now let's change the default label mode to binary, with sorting still set to True")
+
+    # fixed_params["label_mode"] = label_modes[0]
+
+    # start_total_time = time.time_ns()
+
+    # # Run experiments
+    # for experiment_type, variable_values in experiments.items():
+    #     print(f"Running experiment for {experiment_type}")
+    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
 
     end_total_time = time.time_ns()
     total_processing_time = ((end_total_time - start_total_time) / 1e9 )/60
+    print(f"Finished running {count} experiments")
     print(f"Total processing time: {total_processing_time} minutes")
+    print(f"Average per experiment: {total_processing_time/count} minutes")
