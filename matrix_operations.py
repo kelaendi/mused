@@ -17,6 +17,7 @@ def create_adjacency_matrix(data, k, modality_type):
     match modality_type:
         case "location":
             # 'latitude', 'longitude'
+            k=50
             valid_indices = np.where((data[:, 0] != -1) & (data[:, 1] != -1))[0]
             valid_data = data[valid_indices]
 
@@ -26,6 +27,7 @@ def create_adjacency_matrix(data, k, modality_type):
 
         case "time":
             # 'datetaken', 'dateupload'
+            k=150
             valid_indices = np.where(np.all(np.isfinite(data), axis=1))[0]
             valid_data = data[valid_indices]
 
@@ -49,6 +51,7 @@ def create_adjacency_matrix(data, k, modality_type):
         case "text":
             #'username','title','description','tags'
 
+            k=50
             # Get valid rows (ignore empty usernames, blank text)
             valid_indices = np.where(np.any(data != '', axis=1))[0]
             valid_data = data[valid_indices]
@@ -96,6 +99,7 @@ def create_adjacency_matrix(data, k, modality_type):
             indices = np.argsort(-combined_similarity, axis=1)[:, :k]
 
         case _:
+            k=50
             valid_indices = np.where(np.all(np.isfinite(data), axis=1))[0]  # Keep only valid rows
             valid_data = data[valid_indices]
 

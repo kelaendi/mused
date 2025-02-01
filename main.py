@@ -7,7 +7,7 @@ import output_generation
 from collections import deque
 from swfd import SeqBasedSWFD
 
-def process_streaming_data(results, data_modalities, modality_types, window_size, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting):
+def process_streaming_data(results, data_modalities, modality_types, window_size, reduced_dim, n_clusters, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting):
 
     subset_size = len(data_modalities[0])
 
@@ -58,7 +58,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 adjacency_matrices = []
                 for m_index, modality in enumerate(data_modalities):
                     A_w = np.concatenate([point[m_index] for point in window], axis=0)
-                    adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1), modality_types[m_index]))
+                    adjacency_matrices.append(create_adjacency_matrix(A_w, modality_types[m_index]))
                 fused_matrix = fuse_matrices(adjacency_matrices)
                 print(f"fused matrix shape: {fused_matrix.shape}")
 
@@ -78,7 +78,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 adjacency_matrices = []
                 for m_index, modality in enumerate(data_modalities):
                     A_w = np.concatenate([point[m_index] for point in window], axis=0)
-                    adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1), modality_types[m_index]))
+                    adjacency_matrices.append(create_adjacency_matrix(A_w, modality_types[m_index]))
                 fused_matrix = fuse_matrices(adjacency_matrices)
 
                 # Reduce with SVD
@@ -115,7 +115,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
     return results
 
-def process_batch_data(results, data_modalities, modality_types, k_neighbors, reduced_dim, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting):
+def process_batch_data(results, data_modalities, modality_types, reduced_dim, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting):
 
     subset_size = len(data_modalities[0])
 
@@ -126,7 +126,7 @@ def process_batch_data(results, data_modalities, modality_types, k_neighbors, re
         adjacency_matrices = []
         for m_index, modality in enumerate(data_modalities):
             A_w = modality
-            adjacency_matrices.append(create_adjacency_matrix(A_w, min(k_neighbors, A_w.shape[0]-1), modality_types[m_index]))
+            adjacency_matrices.append(create_adjacency_matrix(A_w, modality_types[m_index]))
         fused_matrix = fuse_matrices(adjacency_matrices)
 
         # Reduce with SVD
@@ -187,7 +187,6 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
                     results=results,
                     data_modalities=modalities,
                     modality_types=modality_types,
-                    k_neighbors=params["k_neighbors"],
                     reduced_dim=params["reduced_dim"],
                     n_clusters=n_clusters,
                     seed=params["seed"],
@@ -204,7 +203,6 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
                     data_modalities=modalities,
                     modality_types=modality_types,
                     window_size=params["window_size"],
-                    k_neighbors=params["k_neighbors"],
                     reduced_dim=params["reduced_dim"],
                     n_clusters=n_clusters,
                     seed=params["seed"],
@@ -251,7 +249,6 @@ if __name__ == "__main__":
         "sorting": sortings[0],
         "window_size": window_sizes[1],
         "reduced_dim": 80,
-        "k_neighbors": 50,
         "step_window_ratio": 1,
     }
 
