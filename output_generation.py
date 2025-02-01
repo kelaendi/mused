@@ -28,7 +28,7 @@ def visualize_results(metrics, independent_variable, independent_variables, stri
         plt.ylabel(metric_label)
         plt.legend()
         plt.grid()
-        plt.savefig(os.path.join(save_path, f"{metric_name}_by_{independent_variable}{string_to_add}.png"))
+        plt.savefig(os.path.join(save_path, f"{metric_name}_by_{independent_variable},{string_to_add}.png"))
         plt.close()
 
 def log_averages(metrics, independent_variable="window_indices", string_to_add="", save_path="logs/"):
@@ -74,12 +74,23 @@ def visualize_clusters(reduced_matrix, clusters, plot_name="cluster_vis", save_p
 
     plt.savefig(os.path.join(save_path, f"{plot_name}{string_to_add}.png"))
 
+def log_metrics(metrics, independent_variable, string_to_add="", save_path="logs/"):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    filename = f"exp={independent_variable},{string_to_add}"
+
+    file = os.path.join(save_path, f"{filename}.txt")
+    with open(file, "w") as f:
+        f.write(f"{filename}\n\n")
+        for approach, values in metrics.items():
+            f.write(f"{approach}: {values}\n")
 
 def generate_table(metrics, metric, independent_variable, string_to_add="", save_path="tables/"):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    table_file = os.path.join(save_path, f"table_{metric}_by_{independent_variable}{string_to_add}.txt")
+    table_file = os.path.join(save_path, f"{metric}_by_{independent_variable},{string_to_add}.txt")
     with open(table_file, "w") as f:
         f.write("\\begin{table}[h!]\n\\centering\n")
         f.write(f"\\caption{{{metric.replace('_', ' ').capitalize()} by {independent_variable.replace('_', ' ').capitalize()}}}\n")

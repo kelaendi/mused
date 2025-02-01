@@ -13,8 +13,7 @@ def create_adjacency_matrix(data, k, modality_type):
     matrix = np.zeros((num_samples, num_samples))
     #maybe set different ks and weights depending on modality type
     indices = []
-    print(f"modality = {modality_type}, k = {k}, num_samples = {num_samples} ")
-
+    
     match modality_type:
         case "location":
             # 'latitude', 'longitude'
@@ -86,14 +85,14 @@ def create_adjacency_matrix(data, k, modality_type):
             text_sim = scaler.fit_transform(text_sim)
             tag_sim = scaler.fit_transform(tag_sim)
 
-            # Step 5: Combine All Scores (Weighted)
+            # Combine All Scores (Weighted)
             combined_similarity = (
                 (0.2 * username_sim) +
                 (0.3 * text_sim) +
                 (0.5 * tag_sim)
             )
 
-            # Step 6: Find Nearest Neighbors
+            # Find Nearest Neighbors
             indices = np.argsort(-combined_similarity, axis=1)[:, :k]
 
         case _:
@@ -104,10 +103,10 @@ def create_adjacency_matrix(data, k, modality_type):
                 nbrs = NearestNeighbors(n_neighbors=max(1,k), algorithm='auto').fit(valid_data)
                 indices = nbrs.kneighbors(valid_data, return_distance=False)
     
-    print(f"len(valid_data) = {len(valid_data)}, len(indices) = {len(indices)}")
-    
-    if len(valid_data) > 0:
-        print(f"first valid sample: {valid_data[0]}")
+    print(f"modality = {modality_type}, k = {k}, num_samples = {num_samples}, num_valid = {len(valid_data)}")
+
+    # if len(valid_data) > 0:
+    #     print(f"first valid sample: {valid_data[0]}")
 
     # create adjacency matrix
     for i, row in enumerate(indices):

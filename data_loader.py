@@ -56,7 +56,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	rng = np.random.default_rng(0)
 
 	if 0 <= noise_rate < 1.0:
-		print(noise_rate)
 		# Split noise (labels == 0) and event (labels > 0)
 		noise_indices = np.where(labels == 0)[0]
 		event_indices = np.where(labels > 0)[0]

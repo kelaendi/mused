@@ -160,7 +160,6 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
     metrics = {}
 
     for approach in approaches:
-        print(f"Processing with approach: {approach}")
         results, independent_variables = metrics_evaluation.get_initial_results()
         start_approach_time = time.time_ns()
 
@@ -170,7 +169,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
             # subset_modalities = [modality[:size] for modality in modalities]
             # subset_labels = truth_labels[:size]
 
-            print(f"Running experiment with {experiment_type} = {var_value}")
+            print(f"Running experiment with {experiment_type} = {var_value} for {approach} approach")
             n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 150
 
             modalities, modality_types, truth_labels = data_loader.load_sed2012_dataset(
@@ -182,7 +181,6 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
             )
 
             params["noise_rate"] = np.sum(truth_labels == 0) / len(truth_labels)
-            print(f'actual noise rate: {params["noise_rate"]}')
 
             if approach.endswith("_batch"):
                 results = process_batch_data(
@@ -222,26 +220,23 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
         approach_processing_time = (end_approach_time - start_approach_time) / 1e9
         print(f'Processed with {approach} approach, with {experiment_type}={var_value}  for {approach_processing_time} seconds')
         metrics[approach] = results
-    print("Metrics:", metrics)
                 
-    details_string = f'_mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},k={params["k_neighbors"]},dim={params["reduced_dim"]}'
+    details_string = f'mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},dim={params["reduced_dim"]}'
+    output_generation.log_metrics(metrics=metrics, independent_variable=experiment_type, string_to_add=details_string, save_path= "logs/")
     output_generation.visualize_results(metrics=metrics, independent_variable=experiment_type, independent_variables=independent_variables, string_to_add=details_string, save_path="plots/")
     
     end_experiment_time = time.time_ns()
     experiment_processing_time = ((end_experiment_time - start_experiment_time) / 1e9 )/60
 
-    print(f"Finished all processing for {details_string}")
-    print(f"Experiment processing time: {experiment_processing_time} minutes")
+    print(f"Finished exp={experiment_type},{details_string} after {experiment_processing_time} minutes")
 
     return count + 1
 
 if __name__ == "__main__":
     start_total_time = time.time_ns()
     seed = 0
-    subset_sizes = [4000, 6000, 8000, 12000, 14000] #[5000, 10000, 15000]
-    big_subset_sizes = [8000, 12000, 16000, 17000, 18000]# 20000] # 32000, 64000, 128000]
-    noise_rates = [0.05, 0.25, 0.50, 0.75, .95] #[0.05, 0.25, 0.50, 0.75, .95]
-    big_noise_rates = [0.50, 0.75, .95]
+    subset_sizes = [4000, 6000, 8000, 12000, 14000] #, 16000, 18000]
+    noise_rates = [0.05, 0.25, 0.50, 0.75, .95] # [0.50, 0.75, .95] if higher base subset
     label_modes = ["binary", "types", "all"]
     sortings = [False, True]
     window_sizes = [500, 1000, 2000]
@@ -278,46 +273,7 @@ if __name__ == "__main__":
 
     # Run experiments
     for experiment_type, variable_values in experiments.items():
-        print(f"Running experiment for {experiment_type}")
         count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
-
-    print(f"Now let's change the window sizw")
-
-    fixed_params["window_size"] = window_sizes[2]
-
-    # Run experiments
-    for experiment_type, variable_values in experiments.items():
-        print(f"Running experiment for {experiment_type}")
-        count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
-
-    # print(f"Now let's change the default label mode to types")
-
-    # fixed_params["label_mode"] = label_modes[1]
-
-    # # Run experiments
-    # for experiment_type, variable_values in experiments.items():
-    #     print(f"Running experiment for {experiment_type}")
-    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
-
-    # print(f"Now let's change the sorting to True")
-
-    # fixed_params["sorting"] = sortings[1]
-
-    # # Run experiments
-    # for experiment_type, variable_values in experiments.items():
-    #     print(f"Running experiment for {experiment_type}")
-    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
-
-    # print(f"Now let's change the default label mode to binary, with sorting still set to True")
-
-    # fixed_params["label_mode"] = label_modes[0]
-
-    # start_total_time = time.time_ns()
-
-    # # Run experiments
-    # for experiment_type, variable_values in experiments.items():
-    #     print(f"Running experiment for {experiment_type}")
-    #     count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
 
     end_total_time = time.time_ns()
     total_processing_time = ((end_total_time - start_total_time) / 1e9 )/60
