@@ -7,7 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
 
-def create_adjacency_matrix(data, k, modality_type):
+def create_adjacency_matrix(data, modality_type):
     # modality_type="" # set to empty string for now
     num_samples = len(data)
     matrix = np.zeros((num_samples, num_samples))
