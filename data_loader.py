@@ -88,14 +88,20 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	# Modality 2: Geospatial data (latitude and longitude)
 	location_modality = df[['latitude', 'longitude']].fillna(-1).to_numpy()
 
-	# Modality 3: Text data / Tags (placeholder: tag count)
-	text_modality = df[['username','title','description','tags']].to_numpy()
+	# Modality 3: Username data
+	username_modality = df[['username']].to_numpy()
+
+	# Modality 4: Tags data
+	tags_modality = df[['tags']].to_numpy()
+
+	# Modality 5: Text data (title and description)
+	text_modality = df[['title','description']].to_numpy()
 	
 	# Sanity check to ensure alignment
 	assert time_modality.shape[0] == location_modality.shape[0] == text_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
 
 	# Return modalities and labels
-	return [location_modality, time_modality, text_modality], ["location", "time", "text"], labels
+	return [location_modality, time_modality, username_modality, tags_modality, text_modality], ["location", "time", "username", "tags", "text"], labels
 
 def create_array(lines, ground_truth, class_counter=1):
 	arr = []

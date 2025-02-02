@@ -51,55 +51,62 @@ def create_adjacency_matrix(data, modality_type):
                     nearest_indices = np.argsort(combined_diffs)[:k]
                     indices.append(nearest_indices)
 
-        case "text":
-            #'username','title','description','tags'
+        case "username":
+            indices = []
 
+            # Get valid rows (ignore empty usernames)
+            valid_indices = np.where(data[:, 0] != '')[0]
+            valid_data = data[valid_indices, 0] # np.array(data[valid_indices], dtype=str).flatten()
+            num_valid = len(valid_data)
+            
+            username_dict = {}
+
+            for i in range(num_valid):
+                username = valid_data[i]
+                if username not in username_dict:
+                    username_dict[username] = []
+                username_dict[username].append(i)
+            for i in range(num_valid):
+                username = valid_data[i]
+                indices.append(username_dict.get(username, []))
+
+        case "tags":
+            k = 50
+            indices = []
+
+            # Get valid rows (ignore empty tags)
+            valid_indices = np.where(data[:, 0] != '')[0]
+            valid_data = data[valid_indices, 0]
+            num_valid = len(valid_data)
+
+            # Convert tag lists into sets
+            tag_sets = [set(tags) if tags else set() for tags in valid_data]
+
+            # Compute Jaccard Similarity
+            for i in range(num_valid):
+                similarities = np.array([jaccard_similarity(tag_sets[i], tag_sets[j]) if i != j else -1 for j in range(num_valid)])
+                indices.append(np.argsort(-similarities)[:k])
+
+        case "text":
+            #'title','description'
             k=50
+            indices = []
+
             # Get valid rows (ignore empty usernames, blank text)
             valid_indices = np.where(np.any(data != '', axis=1))[0]
             valid_data = data[valid_indices]
             num_valid = len(valid_data)
 
-            username_sim = np.zeros((num_valid, num_valid))
-            text_sim = np.zeros((num_valid, num_valid))
-            tag_sim = np.zeros((num_valid, num_valid))
-
-            # Username Similarity (Binary Match)
-            for i in range(num_valid):
-                for j in range(num_valid):
-                    if i != j and valid_data[i, 0] == valid_data[j, 0] and valid_data[i, 0] != "":
-                        username_sim[i, j] = 1
-                        username_sim[j, i] = 1
-
             # Title + Description Similarity using TF-IDF + Cosine
-            text_data = np.where(valid_data[:, 1] != '', valid_data[:, 1], ' ') + " " + np.where(valid_data[:, 2] != '', valid_data[:, 2], ' ')
+            text_data = np.where(valid_data[:, 0] != '', valid_data[:, 0], ' ') + " " + np.where(valid_data[:, 1] != '', valid_data[:, 1], ' ')
             if np.any(text_data != " "):
                 vectorizer = TfidfVectorizer()
                 text_vectors = vectorizer.fit_transform(text_data)
                 text_sim = cosine_similarity(text_vectors)
-            
-            # Tags Similarity using Jaccard Similarity
-            tag_sets = [set(tags) if tags else set() for tags in valid_data[:, 3]]
 
-            for i in range(num_valid):
-                for j in range(i+1, num_valid):
-                    tag_sim[i, j] = jaccard_similarity(tag_sets[i], tag_sets[j])
-                    tag_sim[j, i] = tag_sim[i, j]
-
-            scaler = MinMaxScaler()
-            username_sim = scaler.fit_transform(username_sim)
-            text_sim = scaler.fit_transform(text_sim)
-            tag_sim = scaler.fit_transform(tag_sim)
-
-            # Combine All Scores (Weighted)
-            combined_similarity = (
-                (0.2 * username_sim) +
-                (0.3 * text_sim) +
-                (0.5 * tag_sim)
-            )
-
-            # Find Nearest Neighbors
-            indices = np.argsort(-combined_similarity, axis=1)[:, :k]
+                indices = np.argsort(-text_sim, axis=1)[:, :k]
+            else:
+                indices = [[] for _ in range(num_valid)]
 
         case _:
             k=50
@@ -110,7 +117,7 @@ def create_adjacency_matrix(data, modality_type):
                 nbrs = NearestNeighbors(n_neighbors=max(1,k), algorithm='auto').fit(valid_data)
                 indices = nbrs.kneighbors(valid_data, return_distance=False)
     
-    print(f"modality = {modality_type}, k = {k}, num_samples = {num_samples}, num_valid = {len(valid_data)}")
+    print(f"modality = {modality_type}, num_samples = {num_samples}, num_valid = {len(valid_data)}")
 
     # if len(valid_data) > 0:
     #     print(f"first valid sample: {valid_data[0]}")
@@ -120,8 +127,9 @@ def create_adjacency_matrix(data, modality_type):
         for j in row:
             original_i = valid_indices[i]
             original_j = valid_indices[j]
-            matrix[original_i, original_j] = 1
-            matrix[original_j, original_i] = 1
+            if original_i != original_j:
+                matrix[original_i, original_j] = 1
+                # matrix[original_j, original_i] = 1
 
     return matrix
 
