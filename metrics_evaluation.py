@@ -1,4 +1,3 @@
-import numpy as np
 from sklearn.metrics import (normalized_mutual_info_score, f1_score as sklearn_f1_score, precision_score, recall_score, accuracy_score, mean_absolute_error)
 
 def get_initial_results():
