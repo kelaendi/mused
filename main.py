@@ -2,7 +2,7 @@ import time
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 import data_loader
-from matrix_operations import create_adjacency_matrix, fuse_matrices, perform_clustering, incremental_dbscan_clustering, perform_hdbscan_clustering, perform_svd_reduction
+from matrix_operations import create_adjacency_matrix, fuse_matrices, match_clusters, perform_svd_reduction, perform_clustering, perform_dbscan_incr_clustering, perform_hdbscan_clustering
 import metrics_evaluation
 import output_generation
 from collections import deque
@@ -19,7 +19,6 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     # To store clusters and labels for the entire subset
     all_clusters = []
     all_true_labels = []
-    # cluster_history = []
 
     prev_centroids = None
     prev_clusters = None
@@ -56,14 +55,14 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
             if approach == "SWFD":
                 # Reduce with SWFD sketching
-
                 if swfd is None: # Only gets run on first window
                     max_norm = np.max(np.linalg.norm(fused_matrix, axis=1)**2)
-                    swfd = SeqBasedSWFD(window_size, R=max_norm, d=fused_matrix.shape[1], sketch_dim=reduced_dim)
+                    swfd = SeqBasedSWFD(N=window_size, R=max_norm, d=fused_matrix.shape[1], sketch_dim=reduced_dim)
 
                 # Fit each of this window's adjacency matrix rows onto the swfd sketch
-                for row in fused_matrix:
-                    swfd.fit(row[np.newaxis, :])
+                for i in range(fused_matrix.shape[0]):
+                    row = fused_matrix[i, :].reshape(1, -1)
+                    swfd.fit(row)
                 
                 # Get the current sketch
                 reduced_matrix, _, _, _ = swfd.get()
@@ -85,6 +84,15 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             else:
                 clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
+            print(f"clusters: {clusters}")
+
+            if approach == "SVD_hung":
+                clusters = match_clusters(prev_clusters, clusters, method="hungarian")
+            
+            if approach == "SVD_pot":
+                clusters = match_clusters(prev_clusters, clusters, method="pot")
+
+            prev_clusters = clusters
             # Accumulate all clusters
             all_clusters.extend(clusters)
 
@@ -227,7 +235,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
 if __name__ == "__main__":
     start_total_time = time.time_ns()
     seed = 0
-    subset_sizes = [4000, 6000, 8000, 12000, 14000] #, 16000, 18000]
+    subset_sizes = [8000, 12000, 14000, 16000, 18000]
     noise_rates = [0.05, 0.25, 0.50, 0.75, .95] # [0.50, 0.75, .95] if higher base subset
     label_modes = ["binary", "types", "all"]
     sortings = [False, True]
@@ -237,8 +245,8 @@ if __name__ == "__main__":
     np.random.seed(seed)
     fixed_params = {
         "seed": seed,
-        "subset_size": subset_sizes[2],
-        "noise_rate": noise_rates[2],
+        "subset_size": subset_sizes[0],
+        "noise_rate": noise_rates[-1],
         "label_mode": label_modes[0],
         "sorting": sortings[0],
         "window_size": window_sizes[1],
@@ -248,23 +256,22 @@ if __name__ == "__main__":
 
     # Define experiments
     experiments = {
+        "label_mode": label_modes,
         "subset_size": subset_sizes,
         "noise_rate": noise_rates,
-        "label_mode": label_modes,
         "sorting": sortings,
     }
 
     # Approaches
     approaches = [
-        # "SWFD_after",
-        # "DBSCAN_incr",
-        # "HDBSCAN_batch",
+        "SVD_pot",
+        "SVD_hung",
         "SVD_incr",
         "SVD", 
-        "SWFD",
-        "DBSCAN_incr",
         "SVD_batch",
-        "HDBSCAN_batch",
+        "SWFD",
+        # "DBSCAN_incr",
+        # "HDBSCAN_batch",
         ]
 
     # Run experiments

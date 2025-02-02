@@ -8,7 +8,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
+from scipy.optimize import linear_sum_assignment
+
 import hdbscan
+import ot
 
 def create_adjacency_matrix(data, modality_type):
     # modality_type="" # set to empty string for now
@@ -154,10 +157,90 @@ def perform_clustering(matrix, n_clusters, seed):
     clusters = kmeans.fit_predict(matrix)
     return clusters
 
-# def perform_dbscan_clustering(data, eps=0.5, min_samples=5):
-#     dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
-#     clusters = dbscan.fit_predict(data)
-#     return clusters
+def match_clusters(prev_clusters, new_clusters, method="hungarian", min_overlap=5):
+    if prev_clusters is None or len(prev_clusters) == 0:
+        return new_clusters
+    
+    # Get unique clusters/labels
+    unique_prev = np.unique(prev_clusters)
+    unique_new = np.unique(new_clusters)
+
+    num_prev = len(unique_prev)
+    num_new = len(unique_new)
+
+    # Create initial cost matrix filled with Inf
+    cost_matrix = np.full((num_prev, num_new), np.inf)  # Fill with high cost
+
+    for i, p in enumerate(unique_prev):
+        for j, n in enumerate(unique_new):
+            overlap = np.sum((prev_clusters == p) & (new_clusters == n))
+            cost_matrix[i, j] = -overlap if overlap >= min_overlap else np.inf
+
+    print(f"Cost matrix, shape: {cost_matrix.shape}, contents: {cost_matrix}")
+
+    if not is_feasible(cost_matrix=cost_matrix):
+        print("Not feasible")
+        return new_clusters
+    
+    if method == "hungarian":
+        return hungarian_matching(cost_matrix, unique_prev, unique_new, new_clusters)
+    elif method == "pot":
+        return pot_matching(cost_matrix, unique_prev, unique_new, new_clusters)
+    else:
+        raise ValueError("Invalid method. Choose 'hungarian' or 'pot'.")
+
+def pot_matching(cost_matrix, unique_prev, unique_new, new_clusters):
+    cost_matrix[np.isinf(cost_matrix)] = 1e9  # Replace Inf with large values
+
+    # Normalize for OT -> Scale between [0,1]
+    cost_matrix = np.abs(cost_matrix)
+    cost_matrix /= np.max(cost_matrix)
+
+    # Compute transport plan using Sinkhorn algorithm
+    row_weights = np.ones(len(unique_prev)) / len(unique_prev)
+    col_weights = np.ones(len(unique_new)) / len(unique_new)
+
+    transport_matrix = ot.sinkhorn(row_weights, col_weights, cost_matrix, reg=0.1)
+
+    # Get the best matches based on transport plan
+    row_ind, col_ind = np.where(transport_matrix > np.max(transport_matrix) * 0.5)
+
+    # Create mapping dictionary
+    mapping = {unique_new[col]: unique_prev[row] for row, col in zip(row_ind, col_ind)}
+
+    # Apply mapping to new_clusters
+    remapped_clusters = np.array([mapping.get(c, c) for c in new_clusters])
+
+    print(f"remapped (POT): {remapped_clusters}")
+    return remapped_clusters
+
+def hungarian_matching(cost_matrix, unique_prev, unique_new, new_clusters):
+            
+    # Solve the optimal assignment problem
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    # Create mapping dictionary
+    mapping = {unique_new[col]: unique_prev[row] for row, col in zip(row_ind, col_ind)}
+
+    # Remap new cluster labels
+    remapped_clusters = np.array([mapping.get(c, c) for c in new_clusters])
+
+    print(f"remapped:{remapped_clusters}")
+    return remapped_clusters  
+
+def is_feasible(cost_matrix):
+    if np.all(np.isinf(cost_matrix)):
+        return False
+    if np.any(np.all(np.isinf(cost_matrix), axis=1)):
+        return False
+    if np.any(np.all(np.isinf(cost_matrix), axis=0)):
+        return False
+    return True
+
+def perform_dbscan_clustering(data, eps=0.5, min_samples=5):
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+    clusters = dbscan.fit_predict(data)
+    return clusters
 
 def perform_hdbscan_clustering(data, min_cluster_size=5, min_samples=2):
     clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples, metric='euclidean')
@@ -184,7 +267,7 @@ def haversine_distance(location1, location2):
     r = 6371 # Radius of earth in kilometers
     return c * r
 
-def incremental_dbscan_clustering(data, previous_centroids, previous_labels, eps=0.5, min_samples=5):
+def perform_dbscan_incr_clustering(data, previous_centroids, previous_labels, eps=0.5, min_samples=5):
     # Convert input to 2D NumPy array if needed
     if not isinstance(data, np.ndarray):
         print(f"WARNING: Converting `data` to NumPy array, original type: {type(data)}")

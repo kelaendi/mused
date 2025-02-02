@@ -10,3 +10,4 @@ tqdm
 fbpca
 pympler
 hdbscan
+POT
