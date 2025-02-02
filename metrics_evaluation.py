@@ -2,20 +2,20 @@ from sklearn.metrics import (normalized_mutual_info_score, f1_score as sklearn_f
 
 def get_initial_results():
     results = {
-        # possible independent variables
-        "subset_size": [],
-        "noise_rate":[],
-        "label_mode":[],
-        "sorting": [],
-
         # the actual metrics
-        "nmi_score": [],
         "f1_score": [],
+        "nmi_score": [],
         "precision": [],
         "recall": [],
         "accuracy": [],
         "mae": [],
         "processing_time": [],
+        
+        # possible independent variables
+        "subset_size": [],
+        "noise_rate":[],
+        "label_mode":[],
+        "sorting": [],
     }
 
     independent_variables = [
