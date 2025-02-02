@@ -6,6 +6,9 @@ from math import radians, cos, sin, asin, sqrt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import DBSCAN
+from scipy.spatial.distance import cdist
+import hdbscan
 
 def create_adjacency_matrix(data, modality_type):
     # modality_type="" # set to empty string for now
@@ -134,13 +137,23 @@ def fuse_matrices(matrices):
 def perform_svd_reduction(matrix, reduced_dim, seed):
     # Apply SVD to reduce dimensionality
     svd_dim = min(reduced_dim, matrix.shape[1] - 1)
-    svd = TruncatedSVD(n_components=svd_dim)
+    svd = TruncatedSVD(n_components=svd_dim, random_state=seed)
     return svd.fit_transform(matrix)
 
 def perform_clustering(matrix, n_clusters, seed):
     # Cluster with K-means
     kmeans = KMeans(n_clusters=n_clusters, random_state=seed)
     clusters = kmeans.fit_predict(matrix)
+    return clusters
+
+# def perform_dbscan_clustering(data, eps=0.5, min_samples=5):
+#     dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+#     clusters = dbscan.fit_predict(data)
+#     return clusters
+
+def perform_hdbscan_clustering(data, min_cluster_size=5, min_samples=2):
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples, metric='euclidean')
+    clusters = clusterer.fit_predict(data)
     return clusters
 
 def jaccard_similarity(set1, set2):
@@ -162,3 +175,38 @@ def haversine_distance(location1, location2):
     c = 2 * asin(sqrt(a))
     r = 6371 # Radius of earth in kilometers
     return c * r
+
+def incremental_dbscan_clustering(data, previous_centroids, previous_labels, eps=0.5, min_samples=5):
+    # Convert input to 2D NumPy array if needed
+    if not isinstance(data, np.ndarray):
+        print(f"WARNING: Converting `data` to NumPy array, original type: {type(data)}")
+        data = np.array(data, dtype=np.float32)
+
+    if len(data.shape) != 2:
+        print(f"ERROR: DBSCAN expects 2D data but got shape {data.shape}")
+        return None, previous_centroids, previous_labels
+
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+    labels = dbscan.fit_predict(data)
+    
+    unique_clusters = set(labels) - {-1}  # Exclude noise (-1)
+    new_centroids = np.array([data[labels == cluster].mean(axis=0) for cluster in unique_clusters])
+    
+    # Match new clusters to previous clusters
+    if previous_centroids is not None and len(previous_centroids) > 0:
+        print(f"previous_labels: {previous_labels}, size={len(previous_labels)}")
+
+        # Compute distances between old and new cluster centroids
+        distances = cdist(new_centroids, previous_centroids)
+        
+        # Find closest old cluster for each new cluster
+        matches = np.argmin(distances, axis=1)  
+        print(f"matches: {matches}")
+        
+        # Remap labels to maintain consistency
+        new_label_mapping = {new: previous_labels[old] if old < len(previous_labels) else -1 for new, old in enumerate(matches)}
+        labels = np.array([new_label_mapping[label] if label in new_label_mapping else label for label in labels])
+    
+    new_labels = np.unique(labels)
+    
+    return labels, new_centroids, new_labels

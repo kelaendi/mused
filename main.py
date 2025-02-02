@@ -1,7 +1,8 @@
 import time
 import numpy as np
+from sklearn.cluster import MiniBatchKMeans
 import data_loader
-from matrix_operations import create_adjacency_matrix, fuse_matrices, perform_clustering, perform_svd_reduction
+from matrix_operations import create_adjacency_matrix, fuse_matrices, perform_clustering, incremental_dbscan_clustering, perform_hdbscan_clustering, perform_svd_reduction
 import metrics_evaluation
 import output_generation
 from collections import deque
@@ -20,6 +21,12 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     # To store clusters and labels for the entire subset
     all_clusters = []
     all_true_labels = []
+
+    previous_centroids = None
+    previous_labels = None
+
+    if approach == "SVD_incr":
+        clustering_model = MiniBatchKMeans(n_clusters=n_clusters, random_state=seed, batch_size=window_size)
 
     # Setup SWFD first if that's the approach chosen
     if approach == "SWFD_first":
@@ -53,7 +60,16 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             n_clusters = len(np.unique(all_true_labels))
             print(f"Amount of unique labels in this window: {n_clusters}")
 
-            if approach == "SWFD_after":
+            if approach == "SWFD_first":
+                # First reduced via SWFD then fused
+                adjacency_matrices = []
+                for sketch in sketches:
+                    B_t, _, _, _ = sketch.get()
+                    A_w = np.concatenate([point[sketches.index(sketch)] for point in window])
+                    adjacency_matrices.append(create_adjacency_matrix(B_t, modality_types[m_index]))
+                reduced_matrix = fuse_matrices(adjacency_matrices)
+
+            elif approach == "SWFD_after":
                 # Fuse data
                 adjacency_matrices = []
                 for m_index, modality in enumerate(data_modalities):
@@ -73,7 +89,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                     reduced_matrix = reduced_matrix.T
                     print(f"Tnsposed it to {reduced_matrix.shape}")
 
-            elif approach == "SVD":
+            else:
                 # Fuse data
                 adjacency_matrices = []
                 for m_index, modality in enumerate(data_modalities):
@@ -83,21 +99,14 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
                 # Reduce with SVD
                 reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
-            
-            elif approach == "SWFD_first":
-                # First reduced via SWFD then fused
-                adjacency_matrices = []
-                for sketch in sketches:
-                    B_t, _, _, _ = sketch.get()
-                    A_w = np.concatenate([point[sketches.index(sketch)] for point in window])
-                    adjacency_matrices.append(create_adjacency_matrix(B_t, min(k_neighbors, B_t.shape[0]-1), modality_types[m_index]))
-                reduced_matrix = fuse_matrices(adjacency_matrices)
-
-            else:
-                reduced_matrix = data_modalities
 
             # Clustering
-            clusters = perform_clustering(reduced_matrix, n_clusters, seed)
+            if approach == "SVD_incr":
+                clusters = clustering_model.partial_fit(reduced_matrix).predict(reduced_matrix)
+            elif approach == "DBSCAN":
+                clusters, previous_centroids, previous_labels = incremental_dbscan_clustering(reduced_matrix, previous_centroids, previous_labels, eps=0.5, min_samples=5)
+            else:
+                clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
             # Accumulate all clusters
             all_clusters.extend(clusters)
@@ -121,7 +130,9 @@ def process_batch_data(results, data_modalities, modality_types, reduced_dim, n_
 
     total_start_time = time.time_ns()
 
-    if approach == "SVD_batch":
+    if approach == "SED":
+        reduced_matrix = data_modalities
+    else:
         # Fuse data
         adjacency_matrices = []
         for m_index, modality in enumerate(data_modalities):
@@ -131,15 +142,12 @@ def process_batch_data(results, data_modalities, modality_types, reduced_dim, n_
 
         # Reduce with SVD
         reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
-    
-    elif approach == "SED":
-        reduced_matrix = data_modalities
-
-    else:
-        reduced_matrix = data_modalities
 
     # Clustering
-    all_clusters = perform_clustering(reduced_matrix, n_clusters, seed)
+    if approach == "HDBSCAN_batch":
+        all_clusters = perform_hdbscan_clustering(reduced_matrix)
+    else:
+        all_clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
     total_end_time = time.time_ns()
 
@@ -159,28 +167,39 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
     params = fixed_params.copy()
     metrics = {}
 
-    for approach in approaches:
-        results, independent_variables = metrics_evaluation.get_initial_results()
-        start_approach_time = time.time_ns()
-
-        for var_value in variable_values:
-            params[experiment_type] = var_value
-
-            # subset_modalities = [modality[:size] for modality in modalities]
-            # subset_labels = truth_labels[:size]
-
-            print(f"Running experiment with {experiment_type} = {var_value} for {approach} approach")
-            n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 150
-
-            modalities, modality_types, truth_labels = data_loader.load_sed2012_dataset(
-                subset_size=params["subset_size"], 
+    if experiment_type == "subset_size":
+        # Only load the largest subset instead of doing it for every variable and approach
+        all_modalities, modality_types, all_truth_labels = data_loader.load_sed2012_dataset(
+                subset_size=max(variable_values), 
                 binary=(params["label_mode"] == "binary"), 
                 event_types=(params["label_mode"] != "all"), 
                 sort_by_uploaded=params["sorting"], 
                 noise_rate=params["noise_rate"]
             )
 
+    for approach in approaches:
+        results, independent_variables = metrics_evaluation.get_initial_results()
+        start_approach_time = time.time_ns()
+
+        for var_value in variable_values:
+            print(f"Running experiment with {experiment_type} = {var_value} for {approach} approach")
+            params[experiment_type] = var_value
+
+            if experiment_type == "subset_size":
+                modalities = [modality[:var_value] for modality in all_modalities]
+                truth_labels = all_truth_labels[:var_value]
+            else:
+                modalities, modality_types, truth_labels = data_loader.load_sed2012_dataset(
+                    subset_size=params["subset_size"], 
+                    binary=(params["label_mode"] == "binary"), 
+                    event_types=(params["label_mode"] != "all"), 
+                    sort_by_uploaded=params["sorting"], 
+                    noise_rate=params["noise_rate"]
+                )
+
             params["noise_rate"] = np.sum(truth_labels == 0) / len(truth_labels)
+
+            n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 150
 
             if approach.endswith("_batch"):
                 results = process_batch_data(
@@ -262,9 +281,12 @@ if __name__ == "__main__":
 
     # Approaches
     approaches = [
-        # "SWFD_after", 
+        # "SWFD_after",
+        # "DBSCAN_incr",
+        # "HDBSCAN_batch",
+        "SVD_incr",
         "SVD", 
-        "SVD_batch",
+        # "SVD_batch",
         # "SWFD_first",
         ]
 
