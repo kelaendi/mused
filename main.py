@@ -111,7 +111,8 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     all_clusters = np.array(all_clusters)
 
     # Compute metrics for the entire subset
-    results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, all_clusters, all_true_labels, total_end_time, total_start_time)
+    results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, reduced_dim, k_basis, window_size, all_clusters, all_true_labels, total_end_time, total_start_time)
+
 
     return results
 
@@ -255,11 +256,13 @@ def run_experiment(df, experiment_type, variable_values, approaches, fixed_param
 if __name__ == "__main__":
     start_total_time = time.time_ns()
     seed = 0
-    subset_sizes = [8000, 12000, 14000, 16000, 18000]
+    subset_sizes = [8000, 12000, 14000] #, 16000] # 18000]
     noise_rates = [0.05, 0.25, 0.50, 0.75, .95] # [0.50, 0.75, .95] if higher base subset
     label_modes = ["binary", "types", "all"]
     sortings = [False, True]
-    window_sizes = [500, 1000, 2000]
+    window_sizes = [500, 1000, 2000, 4000]
+    dims = [20, 50, 80, 100, 200]
+    ks = [10, 20, 50, 80]
     count = 0
 
     np.random.seed(seed)
@@ -276,7 +279,13 @@ if __name__ == "__main__":
 
     # Define experiments
     experiments = {
+        "demo": ["binary", "types"], #don't even bother with id-based lol
+        "reduced_dim": dims,
+        "k_basis": ks,
+        "window_size": window_sizes,
         "label_mode": label_modes,
+        "sorting": sortings,
+        "noise_rate": noise_rates,
         "subset_size": subset_sizes,
         "noise_rate": noise_rates,
         "sorting": sortings,

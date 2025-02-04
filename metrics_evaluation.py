@@ -5,6 +5,7 @@ def get_initial_results():
         # the actual metrics
         "f1_score": [],
         "nmi_score": [],
+        "nmi_e_score": [],
         "precision": [],
         "recall": [],
         "accuracy": [],
@@ -16,6 +17,9 @@ def get_initial_results():
         "noise_rate":[],
         "label_mode":[],
         "sorting": [],
+        "reduced_dim": [],
+        "k_basis": [],
+        "window_size": [],
     }
 
     independent_variables = [
@@ -23,16 +27,22 @@ def get_initial_results():
         "noise_rate",
         "label_mode",
         "sorting",
+        "reduced_dim",
+        "k_basis",
+        "window_size",
         ]
     return results, independent_variables
 
-def compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, clusters, true_labels, end_time, start_time):
+def compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, reduced_dim, k_basis, window_size, clusters, true_labels, end_time, start_time):
     log_string = ""
     
     results["subset_size"].append(subset_size)
     results["noise_rate"].append(noise_rate)
     results["label_mode"].append(label_mode)
     results["sorting"].append(sorting)
+    results["reduced_dim"].append(reduced_dim)
+    results["k_basis"].append(k_basis)
+    results["window_size"].append(window_size)
     
     if "nmi_score" in results:
         nmi_score = normalized_mutual_info_score(true_labels, clusters)
