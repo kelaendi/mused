@@ -39,6 +39,23 @@ def compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, c
         results["nmi_score"].append(nmi_score)
         log_string += f"nmi={nmi_score:.2f}, "
 
+    if "nmi_e_score" in results:
+        # Identify non-noise indices
+        event_indices = [i for i, label in enumerate(true_labels) if label > 0]
+
+        # Extract event-related true labels and predicted clusters
+        true_labels_event = [true_labels[i] for i in event_indices]
+        clusters_event = [clusters[i] for i in event_indices]
+
+        # Compute NMI_e (NMI for only event-related instances)
+        if len(set(true_labels_event)) > 1 and len(set(clusters_event)) > 1:  # Ensure there are at least two clusters
+            nmi_e_score = normalized_mutual_info_score(true_labels_event, clusters_event)
+        else:
+            nmi_e_score = 0  # If there's only one event cluster, NMI is undefined
+
+        results["nmi_e_score"].append(nmi_e_score)
+        log_string += f"nmi_e={nmi_e_score:.2f}, "
+
     if "f1_score" in results:
         f1_score = sklearn_f1_score(true_labels, clusters, average='weighted', zero_division=0)
         results["f1_score"].append(f1_score)
