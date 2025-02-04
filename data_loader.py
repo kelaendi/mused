@@ -6,7 +6,7 @@ import time
 import datetime
 import re
 
-def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=False, binary=False, noise_rate=0.95):
+def load_sed2012_dataset():
 	# File paths for metadata and ground truth per challenge
 	metadata_file = "dataset/sed2012/sed2012_metadata.xml"
 	technical_file = "dataset/sed2012/technical_events.txt"
@@ -15,9 +15,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 
 	# Create ground truth mapping (photo ID -> event ID)
 	ground_truth = {}
-
-	if binary:
-		event_types = True
 
 	with open(technical_file, "r") as f:
 		create_array(f.readlines(), ground_truth)
@@ -35,25 +32,34 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	# Parse metadata and create DataFrame
 	df = get_modalities(ground_truth, metadata_file)
 
+	df['is_event'] = df['event_id'].apply(
+	lambda eid: 1 if min_technical <= eid <= max_indignados else
+				0  # Default to 0 for unknown/other
+	)
+
+	df['event_type'] = df['event_id'].apply(
+	lambda eid: 1 if min_technical <= eid <= max_technical else
+				2 if min_soccer <= eid <= max_soccer else
+				3 if min_indignados <= eid <= max_indignados else
+				0  # Default to 0 for unknown/other
+	)
+
+	df['datetaken'] = df['datetaken'].replace(['0000-00-00 00:00:00'], '1970-01-01 00:00:00').apply(convertToTimestamp)
+	df['dateupload'] = df['dateupload'].replace(['0000-00-00 00:00:00'], '1970-01-01 00:00:00').apply(convertToTimestamp)
+
+	return df
+
+def prepare_modalities(df, subset_size=10000, sort_by_uploaded=True, event_types=False, binary=False, noise_rate=0.95, seed=0):
 	if binary:
-		df['event_type'] = df['event_id'].apply(
-		lambda eid: 1 if min_technical <= eid <= max_indignados else
-					0  # Default to 0 for unknown/other
-		)
-	else:
-		df['event_type'] = df['event_id'].apply(
-		lambda eid: 1 if min_technical <= eid <= max_technical else
-					2 if min_soccer <= eid <= max_soccer else
-					3 if min_indignados <= eid <= max_indignados else
-					0  # Default to 0 for unknown/other
-		)
-	
-	# Ground truth labels
-	labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
+		labels = df['is_event'].to_numpy() 
+	elif event_types:
+		labels = df['event_type'].to_numpy()
+	else: 
+		labels = df['event_id'].to_numpy()
 
 	subset_size = min(subset_size, len(df))
 
-	rng = np.random.default_rng(0)
+	rng = np.random.default_rng(seed=seed)
 
 	if 0 <= noise_rate < 1.0:
 		# Split noise (labels == 0) and event (labels > 0)
@@ -81,8 +87,6 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 		df = df.sort_values(by='dateupload')
 
 	# Modality 1: Time data (date taken and uploaded)
-	df['datetaken'] = df['datetaken'].replace(['0000-00-00 00:00:00'], '1970-01-01 00:00:00').apply(convertToTimestamp)
-	df['dateupload'] = df['dateupload'].replace(['0000-00-00 00:00:00'], '1970-01-01 00:00:00').apply(convertToTimestamp)
 	time_modality = df[['datetaken', 'dateupload']].to_numpy()
 
 	# Modality 2: Geospatial data (latitude and longitude)
@@ -99,6 +103,10 @@ def load_sed2012_dataset(subset_size=10000, sort_by_uploaded=True, event_types=F
 	
 	# Sanity check to ensure alignment
 	assert time_modality.shape[0] == location_modality.shape[0] == text_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
+
+	if subset_size < 500:
+		# Return only 2-3 modalities and labels, let's not bloat it
+		return [location_modality, time_modality, username_modality], ["location", "time", "username"], labels
 
 	# Return modalities and labels
 	return [location_modality, time_modality, username_modality, tags_modality, text_modality], ["location", "time", "username", "tags", "text"], labels
