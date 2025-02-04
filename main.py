@@ -5,6 +5,7 @@ import data_loader
 from matrix_operations import create_adjacency_matrix, fuse_matrices, match_clusters, perform_dbscan_clustering, perform_svd_reduction, perform_clustering, perform_dbscan_incr_clustering, perform_hdbscan_clustering
 import metrics_evaluation
 import output_generation
+import tee, traceback 
 from collections import deque
 from swfd import SeqBasedSWFD
 from incdbscan import IncrementalDBSCAN
@@ -92,13 +93,26 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             else:
                 clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
-            print(f"clusters: {clusters}")
+            if subset_size < 1000:
+                print(f"adjacency_matrices: {adjacency_matrices}")
+                print(f"fused_matrix: {fused_matrix}")
+                print(f"reduced_matrix: {reduced_matrix}")
+                print(f"clusters: {clusters}")
+                print(f"labels: {true_labels}")
 
             if approach == "SVD_hung":
-                clusters = match_clusters(prev_clusters, clusters, method="hungarian")
+                clusters = match_clusters(prev_clusters, clusters, method="hungarian", min_overlap=3)
+                if subset_size < 500:
+                    print(f"after matching: {clusters}")
             
             if approach == "SVD_pot":
-                clusters = match_clusters(prev_clusters, clusters, method="pot")
+                clusters = match_clusters(prev_clusters, clusters, method="pot", min_overlap=3)
+                if subset_size < 500:
+                    print(f"after matching: {clusters}")
+
+            if clusters is None or len(clusters) == 0:
+                print(f"WARNING: Clustering failed at i={i}. Assigning noise (-1) to all samples.")
+                clusters = np.full(window_size, -1)  # Assign all to noise
 
             prev_clusters = clusters
             # Accumulate all clusters
@@ -147,6 +161,13 @@ def process_batch_data(results, data_modalities, modality_types, reduced_dim, k_
     all_true_labels = np.array(complete_true_labels)
     all_clusters = np.array(all_clusters)
 
+    if subset_size < 500:
+        print(f"adjacency_matrices: {adjacency_matrices}")
+        print(f"fused_matrix: {fused_matrix}")
+        print(f"reduced_matrix: {reduced_matrix}")
+        print(f"all_clusters: {all_clusters}")
+        print(f"all_labels: {all_true_labels}")
+
     print(f"Amount of unique labels in total: {len(np.unique(all_true_labels))}")
 
     # Compute metrics for the entire subset
@@ -161,35 +182,29 @@ def run_experiment(df, experiment_type, variable_values, approaches, fixed_param
     params = fixed_params.copy()
     metrics = {}
 
-    if experiment_type == "subset_size":
-        # Only load the largest subset instead of doing it for every variable and approach
-        all_modalities, modality_types, all_truth_labels = data_loader.load_sed2012_dataset(
-                subset_size=max(variable_values), 
-                binary=(params["label_mode"] == "binary"), 
-                event_types=(params["label_mode"] != "all"), 
-                sort_by_uploaded=params["sorting"], 
-                noise_rate=params["noise_rate"]
-            )
-
     for approach in approaches:
         results, independent_variables = metrics_evaluation.get_initial_results()
         start_approach_time = time.time_ns()
 
         for var_value in variable_values:
-            print(f"Running experiment with {experiment_type} = {var_value} for {approach} approach")
             params[experiment_type] = var_value
 
-            if experiment_type == "subset_size":
-                modalities = [modality[:var_value] for modality in all_modalities]
-                truth_labels = all_truth_labels[:var_value]
-            else:
-                modalities, modality_types, truth_labels = data_loader.load_sed2012_dataset(
-                    subset_size=params["subset_size"], 
-                    binary=(params["label_mode"] == "binary"), 
-                    event_types=(params["label_mode"] != "all"), 
-                    sort_by_uploaded=params["sorting"], 
-                    noise_rate=params["noise_rate"]
-                )
+            print(f"Running experiment with {experiment_type} = {var_value} for {approach} approach")
+            print(f"Params: {params}")
+
+            modalities, modality_types, truth_labels = data_loader.prepare_modalities(
+                df=df,
+                subset_size=params["subset_size"], 
+                binary=(params["label_mode"] == "binary"), 
+                event_types=(params["label_mode"] != "all"), 
+                sort_by_uploaded=params["sorting"], 
+                noise_rate=params["noise_rate"],
+                seed=params["seed"],
+            )
+
+            if params["subset_size"] < 500:
+                print(f"modalities: {modalities}")
+                print(f"labels: {truth_labels}")
             
             params["noise_rate"] = np.sum(truth_labels == 0) / len(truth_labels)
 
@@ -254,6 +269,7 @@ def run_experiment(df, experiment_type, variable_values, approaches, fixed_param
     return count + 1
 
 if __name__ == "__main__":
+    log_file = None
     start_total_time = time.time_ns()
     seed = 0
     subset_sizes = [8000, 12000, 14000] #, 16000] # 18000]
@@ -266,16 +282,9 @@ if __name__ == "__main__":
     count = 0
 
     np.random.seed(seed)
-    fixed_params = {
-        "seed": seed,
-        "subset_size": subset_sizes[0],
-        "noise_rate": noise_rates[-1],
-        "label_mode": label_modes[0],
-        "sorting": sortings[0],
-        "window_size": window_sizes[1],
-        "reduced_dim": 80,
-        "step_window_ratio": 1,
-    }
+
+    # Load the dataframe just once
+    df = data_loader.load_sed2012_dataset()
 
     # Define experiments
     experiments = {
@@ -287,8 +296,6 @@ if __name__ == "__main__":
         "sorting": sortings,
         "noise_rate": noise_rates,
         "subset_size": subset_sizes,
-        "noise_rate": noise_rates,
-        "sorting": sortings,
     }
 
     # Approaches
@@ -304,10 +311,48 @@ if __name__ == "__main__":
         "DBSCAN_batch",
         "HDBSCAN_batch",
         ]
+    
+    default_params = {
+        "seed": seed,
+        "subset_size": subset_sizes[0],
+        "noise_rate": noise_rates[-2],
+        "label_mode": label_modes[0],
+        "sorting": sortings[0],
+        "window_size": window_sizes[1],
+        "reduced_dim": 80,
+        "k_basis": 50,
+        "step_window_ratio": 1,
+    }
 
     # Run experiments
     for experiment_type, variable_values in experiments.items():
-        count = run_experiment(experiment_type, variable_values, approaches, fixed_params, count)
+        fixed_params = default_params.copy()
+        if experiment_type == "demo":
+            fixed_params["subset_size"] = 100
+            fixed_params["window_size"] = 10
+            fixed_params["noise_rate"] = 0.4
+            fixed_params["reduced_dim"] = 2
+            fixed_params["k_basis"] = 2
+            experiment_type = "label_mode"
+
+        log_file = tee.setup_logging() # Comment out when you don't care about seeing all prints
+
+        try:
+            count = run_experiment(df, experiment_type, variable_values, approaches, fixed_params, count)
+
+        except Exception as e:
+            print("\n=== ERROR OCCURRED ===")
+            traceback.print_exc()  # Print full traceback
+            print("======================\n")
+
+            if log_file is not None:
+                log_file.close()  # Ensure log file is closed before stopping
+            raise e  # Re-raise the exception to stop execution
+
+        finally:
+            if log_file is not None:
+                log_file.close()
+
 
     end_total_time = time.time_ns()
     total_processing_time = ((end_total_time - start_total_time) / 1e9 )/60
