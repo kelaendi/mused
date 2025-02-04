@@ -9,11 +9,10 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
-
 import hdbscan
 import ot
 
-def create_adjacency_matrix(data, modality_type):
+def create_adjacency_matrix(data, modality_type, k_basis=50):
     # modality_type="" # set to empty string for now
     num_samples = len(data)
     matrix = np.zeros((num_samples, num_samples))
@@ -23,7 +22,7 @@ def create_adjacency_matrix(data, modality_type):
     match modality_type:
         case "location":
             # 'latitude', 'longitude'
-            k=50
+            k=k_basis
             valid_indices = np.where((data[:, 0] != -1) & (data[:, 1] != -1))[0]
             valid_data = data[valid_indices]
 
@@ -33,7 +32,7 @@ def create_adjacency_matrix(data, modality_type):
 
         case "time":
             # 'datetaken', 'dateupload'
-            k=150
+            k=k_basis*3
             valid_indices = np.where(np.all(np.isfinite(data), axis=1))[0]
             valid_data = data[valid_indices]
 
@@ -74,7 +73,7 @@ def create_adjacency_matrix(data, modality_type):
                 indices.append(username_dict.get(username, []))
 
         case "tags":
-            k = 50
+            k = k_basis
             indices = []
 
             # Get valid rows (ignore empty tags)
@@ -92,7 +91,7 @@ def create_adjacency_matrix(data, modality_type):
 
         case "text":
             #'title','description'
-            k=50
+            k=k_basis
             indices = []
 
             # Get valid rows (ignore empty usernames, blank text)
@@ -112,7 +111,7 @@ def create_adjacency_matrix(data, modality_type):
                 indices = [[] for _ in range(num_valid)]
 
         case _:
-            k=50
+            k=k_basis
             valid_indices = np.where(np.all(np.isfinite(data), axis=1))[0]  # Keep only valid rows
             valid_data = data[valid_indices]
 
