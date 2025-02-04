@@ -2,13 +2,14 @@ import time
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 import data_loader
-from matrix_operations import create_adjacency_matrix, fuse_matrices, match_clusters, perform_svd_reduction, perform_clustering, perform_dbscan_incr_clustering, perform_hdbscan_clustering
+from matrix_operations import create_adjacency_matrix, fuse_matrices, match_clusters, perform_dbscan_clustering, perform_svd_reduction, perform_clustering, perform_dbscan_incr_clustering, perform_hdbscan_clustering
 import metrics_evaluation
 import output_generation
 from collections import deque
 from swfd import SeqBasedSWFD
+from incdbscan import IncrementalDBSCAN
 
-def process_streaming_data(results, data_modalities, modality_types, window_size, reduced_dim, n_clusters_total, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting):
+def process_streaming_data(results, data_modalities, modality_types, window_size, reduced_dim, k_basis, n_clusters_total, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting, eps, min_samples):
 
     subset_size = len(data_modalities[0])
 
@@ -24,9 +25,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     prev_clusters = None
 
     swfd = None
-
-    if approach == "SVD_incr":
-        clustering_model = MiniBatchKMeans(n_clusters=n_clusters_total, random_state=seed, batch_size=window_size)
+    clusterer = None
 
     # Simulate streaming data, updating sketch with each arriving datapoint
     for i in range(subset_size):
@@ -40,7 +39,6 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
             true_labels = complete_true_labels[i - len(window) + 1:i + 1]
             all_true_labels.extend(true_labels) #should be same as just taking complete_true_labels
-# 
             n_clusters = len(np.unique(true_labels))
             print(f"Amount of unique labels in this window: {n_clusters}")
 
@@ -48,7 +46,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             adjacency_matrices = []
             for m_index, _ in enumerate(data_modalities):
                 A_w = np.concatenate([point[m_index] for point in window], axis=0)
-                adjacency_matrices.append(create_adjacency_matrix(A_w, modality_types[m_index]))
+                adjacency_matrices.append(create_adjacency_matrix(data=A_w, modality_type=modality_types[m_index], k_basis=k_basis))
             
             # Fuse data
             fused_matrix = fuse_matrices(adjacency_matrices)
@@ -78,9 +76,19 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
             # Clustering
             if approach == "SVD_incr":
-                clusters = clustering_model.partial_fit(reduced_matrix).predict(reduced_matrix) 
+                if clusterer is None:
+                    clusterer = MiniBatchKMeans(n_clusters=n_clusters_total, random_state=seed, batch_size=window_size)
+                clusters = clusterer.partial_fit(reduced_matrix).predict(reduced_matrix)
+
             elif approach == "DBSCAN_incr":
-                clusters, prev_centroids, prev_clusters = perform_dbscan_incr_clustering(reduced_matrix, prev_centroids, prev_clusters, eps=0.5, min_samples=5)
+                if clusterer is None:
+                    clusterer = IncrementalDBSCAN(eps=eps, min_pts=min_samples)
+                # Insert batch of data points and get their labels
+                clusters = clusterer.insert(reduced_matrix).get_cluster_labels(reduced_matrix)
+
+            elif approach == "DBSCAN_centr":
+                clusters, prev_centroids, prev_clusters = perform_dbscan_incr_clustering(reduced_matrix, prev_centroids, prev_clusters, eps=eps, min_samples=min_samples)
+            
             else:
                 clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
@@ -107,28 +115,28 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
 
     return results
 
-def process_batch_data(results, data_modalities, modality_types, reduced_dim, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting):
+def process_batch_data(results, data_modalities, modality_types, reduced_dim, k_basis, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting, eps, min_samples, min_cluster_size, window_size):
 
     subset_size = len(data_modalities[0])
 
     total_start_time = time.time_ns()
 
-    if approach == "SED":
-        reduced_matrix = data_modalities
-    else:
-        # Fuse data
-        adjacency_matrices = []
-        for m_index, modality in enumerate(data_modalities):
-            A_w = modality
-            adjacency_matrices.append(create_adjacency_matrix(A_w, modality_types[m_index]))
-        fused_matrix = fuse_matrices(adjacency_matrices)
+    # Fuse data
+    adjacency_matrices = []
+    for m_index, modality in enumerate(data_modalities):
+        A_w = modality
+        adjacency_matrices.append(create_adjacency_matrix(data=A_w, modality_type=modality_types[m_index], k_basis=k_basis))
 
-        # Reduce with SVD
-        reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
+    fused_matrix = fuse_matrices(adjacency_matrices)
+
+    # Reduce with SVD
+    reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
 
     # Clustering
     if approach == "HDBSCAN_batch":
-        all_clusters = perform_hdbscan_clustering(reduced_matrix)
+        all_clusters = perform_hdbscan_clustering(reduced_matrix, min_cluster_size=min_cluster_size, min_samples=min_samples)
+    elif approach == "DBSCAN_batch":
+        all_clusters = perform_dbscan_clustering(reduced_matrix, eps=eps, min_samples=min_samples)
     else:
         all_clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
@@ -141,11 +149,13 @@ def process_batch_data(results, data_modalities, modality_types, reduced_dim, n_
     print(f"Amount of unique labels in total: {len(np.unique(all_true_labels))}")
 
     # Compute metrics for the entire subset
-    results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, all_clusters, all_true_labels, total_end_time, total_start_time)
+    results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, reduced_dim, k_basis, window_size, all_clusters, all_true_labels, total_end_time, total_start_time)
 
     return results
 
-def run_experiment(experiment_type, variable_values, approaches, fixed_params, count):
+def run_experiment(df, experiment_type, variable_values, approaches, fixed_params, count):
+    print(f"Running {experiment_type} experiment.")
+    print(f"Fixed params: {fixed_params}")
     start_experiment_time = time.time_ns()
     params = fixed_params.copy()
     metrics = {}
@@ -184,12 +194,15 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
 
             n_clusters = 2 if params["label_mode"] == "binary" else 4 if params["label_mode"] == "types" else 150
 
+            eps, min_samples, min_cluster_size = 1.5, 2, 3
+
             if approach.endswith("_batch"):
                 results = process_batch_data(
                     results=results,
                     data_modalities=modalities,
                     modality_types=modality_types,
                     reduced_dim=params["reduced_dim"],
+                    k_basis=params["k_basis"],
                     n_clusters=n_clusters,
                     seed=params["seed"],
                     approach=approach,
@@ -197,6 +210,10 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
                     noise_rate=params["noise_rate"],
                     label_mode=params["label_mode"],
                     sorting=params["sorting"],
+                    eps=eps,
+                    min_samples=min_samples,
+                    min_cluster_size=min_cluster_size,
+                    window_size=params["window_size"]
                 )
 
             else:
@@ -206,6 +223,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
                     modality_types=modality_types,
                     window_size=params["window_size"],
                     reduced_dim=params["reduced_dim"],
+                    k_basis=params["k_basis"],
                     n_clusters_total=n_clusters,
                     seed=params["seed"],
                     approach=approach,
@@ -214,6 +232,8 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
                     noise_rate=params["noise_rate"],
                     label_mode=params["label_mode"],
                     sorting=params["sorting"],
+                    eps=eps,
+                    min_samples=min_samples
                 )
         
         end_approach_time = time.time_ns()
@@ -221,7 +241,7 @@ def run_experiment(experiment_type, variable_values, approaches, fixed_params, c
         print(f'Processed with {approach} approach, with {experiment_type}={var_value}  for {approach_processing_time} seconds')
         metrics[approach] = results
                 
-    details_string = f'mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},dim={params["reduced_dim"]}'
+    details_string = f'mode={params["label_mode"]},sorted={params["sorting"]},noise={params["noise_rate"]},window={params["window_size"]},subset={params["subset_size"]},dim={params["reduced_dim"]},k={params["k_basis"]}'
     output_generation.log_metrics(metrics=metrics, independent_variable=experiment_type, string_to_add=details_string, save_path= "logs/")
     output_generation.visualize_results(metrics=metrics, independent_variable=experiment_type, independent_variables=independent_variables, string_to_add=details_string, save_path="plots/")
     
@@ -264,14 +284,16 @@ if __name__ == "__main__":
 
     # Approaches
     approaches = [
+        "DBSCAN_incr",
+        "DBSCAN_centr",
+        "SWFD",
         "SVD_pot",
         "SVD_hung",
         "SVD_incr",
         "SVD", 
         "SVD_batch",
-        "SWFD",
-        # "DBSCAN_incr",
-        # "HDBSCAN_batch",
+        "DBSCAN_batch",
+        "HDBSCAN_batch",
         ]
 
     # Run experiments

@@ -11,3 +11,4 @@ fbpca
 pympler
 hdbscan
 POT
+incdbscan
