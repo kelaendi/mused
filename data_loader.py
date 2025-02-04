@@ -80,9 +80,6 @@ def prepare_modalities(df, subset_size=10000, sort_by_uploaded=True, event_types
 		# Subset the data and labels
 		df = df.iloc[sampled_indices]
 
-		# Get the labels again
-		labels = df['event_type'].to_numpy() if event_types else df['event_id'].to_numpy()
-
 	if sort_by_uploaded:
 		df = df.sort_values(by='dateupload')
 
@@ -100,7 +97,15 @@ def prepare_modalities(df, subset_size=10000, sort_by_uploaded=True, event_types
 
 	# Modality 5: Text data (title and description)
 	text_modality = df[['title','description']].to_numpy()
-	
+
+	# Get the labels again
+	if binary:
+		labels = df['is_event'].to_numpy() 
+	elif event_types:
+		labels = df['event_type'].to_numpy()
+	else: 
+		labels = df['event_id'].to_numpy()
+
 	# Sanity check to ensure alignment
 	assert time_modality.shape[0] == location_modality.shape[0] == text_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
 
