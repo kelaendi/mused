@@ -5,26 +5,20 @@ import data_loader
 from matrix_operations import create_adjacency_matrix, fuse_matrices, match_clusters, perform_dbscan_clustering, perform_svd_reduction, perform_clustering, perform_dbscan_incr_clustering, perform_hdbscan_clustering
 import metrics_evaluation
 import output_generation
-import tee, traceback 
+import tee
 from collections import deque
 from swfd import SeqBasedSWFD
 from incdbscan import IncrementalDBSCAN
 
 def process_streaming_data(results, data_modalities, modality_types, window_size, reduced_dim, k_basis, n_clusters_total, seed, approach, complete_true_labels, step_window_ratio, noise_rate, label_mode, sorting, eps, min_samples):
-
-    subset_size = len(data_modalities[0])
-
     total_start_time = time.time_ns()
 
+    subset_size = len(data_modalities[0])
     window = deque(maxlen=window_size)
-
-    # To store clusters and labels for the entire subset
     all_clusters = []
     all_true_labels = []
-
     prev_centroids = None
     prev_clusters = None
-
     swfd = None
     clusterer = None
 
@@ -38,6 +32,10 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
         if len(window) == window_size and (i + 1)*step_window_ratio % window_size == 0:
             print(f"i={i}")
 
+            if subset_size < 1000:
+                print(f"Last appended data point:\n{data_point}")
+                print(f"Window:\n{window}")
+
             true_labels = complete_true_labels[i - len(window) + 1:i + 1]
             all_true_labels.extend(true_labels) #should be same as just taking complete_true_labels
             n_clusters = len(np.unique(true_labels))
@@ -47,12 +45,17 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
             adjacency_matrices = []
             for m_index, _ in enumerate(data_modalities):
                 A_w = np.concatenate([point[m_index] for point in window], axis=0)
-                adjacency_matrices.append(create_adjacency_matrix(data=A_w, modality_type=modality_types[m_index], k_basis=k_basis))
+                adjacency_matrix = create_adjacency_matrix(data=A_w, modality_type=modality_types[m_index], k_basis=k_basis)
+                adjacency_matrices.append(adjacency_matrix)
+                
+                if subset_size < 1000:
+                    print(f"A_w for m_index {m_index}:\n{A_w}")
+                    print(f"Adj Matrix:\n{adjacency_matrix}")
             
             # Fuse data
             fused_matrix = fuse_matrices(adjacency_matrices)
 
-            if approach == "SWFD":
+            if approach == "SWFDMC":
                 # Reduce with SWFD sketching
                 if swfd is None: # Only gets run on first window
                     max_norm = np.max(np.linalg.norm(fused_matrix, axis=1)**2)
@@ -76,7 +79,7 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 reduced_matrix = perform_svd_reduction(fused_matrix, reduced_dim, seed)
 
             # Clustering
-            if approach == "SVD_incr":
+            if approach == "sSVDMC_mini":
                 if clusterer is None:
                     clusterer = MiniBatchKMeans(n_clusters=n_clusters_total, random_state=seed, batch_size=window_size)
                 clusters = clusterer.partial_fit(reduced_matrix).predict(reduced_matrix)
@@ -94,28 +97,26 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 clusters = perform_clustering(reduced_matrix, n_clusters, seed)
 
             if subset_size < 1000:
-                print(f"adjacency_matrices: {adjacency_matrices}")
-                print(f"fused_matrix: {fused_matrix}")
-                print(f"reduced_matrix: {reduced_matrix}")
-                print(f"clusters: {clusters}")
-                print(f"labels: {true_labels}")
+                print(f"fused_matrix:\n{fused_matrix}")
+                print(f"reduced_matrix:\n{reduced_matrix}")
+                print(f"clusters:\n{clusters}")
+                print(f"labels:\n{true_labels}")
 
-            if approach == "SVD_hung":
+            if approach == "sSVDMC_hung":
                 clusters = match_clusters(prev_clusters, clusters, method="hungarian", min_overlap=3)
                 if subset_size < 500:
                     print(f"after matching: {clusters}")
             
-            if approach == "SVD_pot":
+            if approach == "sSVDMC_pot":
                 clusters = match_clusters(prev_clusters, clusters, method="pot", min_overlap=3)
                 if subset_size < 500:
                     print(f"after matching: {clusters}")
 
             if clusters is None or len(clusters) == 0:
-                print(f"WARNING: Clustering failed at i={i}. Assigning noise (-1) to all samples.")
-                clusters = np.full(window_size, -1)  # Assign all to noise
+                print(f"WARNING: Clustering failed at i={i}. Assigning noise (0) to all samples.")
+                clusters = np.full(window_size, 0)  # Assign all to noise
 
             prev_clusters = clusters
-            # Accumulate all clusters
             all_clusters.extend(clusters)
 
     total_end_time = time.time_ns()
@@ -127,14 +128,12 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
     # Compute metrics for the entire subset
     results = metrics_evaluation.compute_all_metrics(results, subset_size, noise_rate, label_mode, sorting, reduced_dim, k_basis, window_size, all_clusters, all_true_labels, total_end_time, total_start_time)
 
-
     return results
 
 def process_batch_data(results, data_modalities, modality_types, reduced_dim, k_basis, n_clusters, seed, approach, complete_true_labels, noise_rate, label_mode, sorting, eps, min_samples, min_cluster_size, window_size):
+    total_start_time = time.time_ns()
 
     subset_size = len(data_modalities[0])
-
-    total_start_time = time.time_ns()
 
     # Fuse data
     adjacency_matrices = []
@@ -160,13 +159,6 @@ def process_batch_data(results, data_modalities, modality_types, reduced_dim, k_
     # Compute metrics for the entire subset
     all_true_labels = np.array(complete_true_labels)
     all_clusters = np.array(all_clusters)
-
-    if subset_size < 500:
-        print(f"adjacency_matrices: {adjacency_matrices}")
-        print(f"fused_matrix: {fused_matrix}")
-        print(f"reduced_matrix: {reduced_matrix}")
-        print(f"all_clusters: {all_clusters}")
-        print(f"all_labels: {all_true_labels}")
 
     print(f"Amount of unique labels in total: {len(np.unique(all_true_labels))}")
 
@@ -201,10 +193,6 @@ def run_experiment(df, experiment_type, variable_values, approaches, fixed_param
                 noise_rate=params["noise_rate"],
                 seed=params["seed"],
             )
-
-            if params["subset_size"] < 500:
-                print(f"modalities: {modalities}")
-                print(f"labels: {truth_labels}")
             
             params["noise_rate"] = np.sum(truth_labels == 0) / len(truth_labels)
 
@@ -272,13 +260,13 @@ if __name__ == "__main__":
     log_file = None
     start_total_time = time.time_ns()
     seed = 0
-    subset_sizes = [8000, 12000, 14000] #, 16000] # 18000]
+    subset_sizes = [8000, 10000, 12000, 14000, 16000] #, 16000] # 18000]
     noise_rates = [0.05, 0.25, 0.50, 0.75, .95] # [0.50, 0.75, .95] if higher base subset
     label_modes = ["binary", "types", "all"]
     sortings = [False, True]
     window_sizes = [500, 1000, 2000, 4000]
-    dims = [20, 50, 80, 100, 200]
-    ks = [10, 20, 50, 80]
+    dims = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    ks = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     count = 0
 
     np.random.seed(seed)
@@ -289,37 +277,37 @@ if __name__ == "__main__":
     # Define experiments
     experiments = {
         "demo": ["binary", "types"], #don't even bother with id-based lol
+        "subset_size": subset_sizes,
+        "label_mode": label_modes,
+        "noise_rate": noise_rates,
+        "sorting": sortings,
+        "window_size": window_sizes,
         "reduced_dim": dims,
         "k_basis": ks,
-        "window_size": window_sizes,
-        "label_mode": label_modes,
-        "sorting": sortings,
-        "noise_rate": noise_rates,
-        "subset_size": subset_sizes,
     }
 
     # Approaches
     approaches = [
-        "DBSCAN_incr",
-        "DBSCAN_centr",
-        "SWFD",
-        "SVD_pot",
-        "SVD_hung",
-        "SVD_incr",
-        "SVD", 
-        "SVD_batch",
-        "DBSCAN_batch",
-        "HDBSCAN_batch",
+        "SVDMC_batch",
+        "SWFDMC",
+        "sSVDMC", 
+        "sSVDMC_hung",
+        "sSVDMC_pot",
+        "sSVDMC_mini",
+        # "DBSCAN_batch",
+        # "HDBSCAN_batch",
+        # "DBSCAN_incr",
+        # "DBSCAN_centr",
         ]
     
     default_params = {
         "seed": seed,
         "subset_size": subset_sizes[0],
         "noise_rate": noise_rates[-2],
-        "label_mode": label_modes[0],
+        "label_mode": label_modes[1],
         "sorting": sortings[0],
         "window_size": window_sizes[1],
-        "reduced_dim": 80,
+        "reduced_dim": 50,
         "k_basis": 50,
         "step_window_ratio": 1,
     }
@@ -329,10 +317,10 @@ if __name__ == "__main__":
         fixed_params = default_params.copy()
         if experiment_type == "demo":
             fixed_params["subset_size"] = 100
-            fixed_params["window_size"] = 10
+            fixed_params["window_size"] = 8
             fixed_params["noise_rate"] = 0.4
             fixed_params["reduced_dim"] = 2
-            fixed_params["k_basis"] = 2
+            fixed_params["k_basis"] = 1
             experiment_type = "label_mode"
 
         log_file = tee.setup_logging() # Comment out when you don't care about seeing all prints
@@ -341,10 +329,6 @@ if __name__ == "__main__":
             count = run_experiment(df, experiment_type, variable_values, approaches, fixed_params, count)
 
         except Exception as e:
-            print("\n=== ERROR OCCURRED ===")
-            traceback.print_exc()  # Print full traceback
-            print("======================\n")
-
             if log_file is not None:
                 log_file.close()  # Ensure log file is closed before stopping
             raise e  # Re-raise the exception to stop execution
