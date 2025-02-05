@@ -5,7 +5,6 @@ from sklearn.cluster import KMeans
 from math import radians, cos, sin, asin, sqrt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
@@ -22,8 +21,8 @@ def create_adjacency_matrix(data, modality_type, k_basis=50):
     match modality_type:
         case "location":
             # 'latitude', 'longitude'
-            k=k_basis
-            valid_indices = np.where((data[:, 0] != -1) & (data[:, 1] != -1))[0]
+            k=k_basis + 1 # (because neighbor of itself, will be removed later)            
+            valid_indices = np.where(~np.isnan(data).any(axis=1))[0]
             valid_data = data[valid_indices]
 
             if len(valid_data) > 0:
@@ -32,8 +31,8 @@ def create_adjacency_matrix(data, modality_type, k_basis=50):
 
         case "time":
             # 'datetaken', 'dateupload'
-            k=k_basis*3
-            valid_indices = np.where(np.all(np.isfinite(data), axis=1))[0]
+            k=k_basis*3+1 # (because neighbor of itself, will be removed later)
+            valid_indices = np.where(~((data[:, 0] == 0.0) | (data[:, 1] == 0.0)))[0]            
             valid_data = data[valid_indices]
 
             if len(valid_data) > 0:
@@ -58,7 +57,7 @@ def create_adjacency_matrix(data, modality_type, k_basis=50):
 
             # Get valid rows (ignore empty usernames)
             valid_indices = np.where(data[:, 0] != '')[0]
-            valid_data = data[valid_indices, 0] # np.array(data[valid_indices], dtype=str).flatten()
+            valid_data = data[valid_indices, 0]
             num_valid = len(valid_data)
             
             username_dict = {}
@@ -91,7 +90,7 @@ def create_adjacency_matrix(data, modality_type, k_basis=50):
 
         case "text":
             #'title','description'
-            k=k_basis
+            k=k_basis + 1
             indices = []
 
             # Get valid rows (ignore empty usernames, blank text)
@@ -120,9 +119,6 @@ def create_adjacency_matrix(data, modality_type, k_basis=50):
                 indices = nbrs.kneighbors(valid_data, return_distance=False)
     
     print(f"modality = {modality_type}, num_samples = {num_samples}, num_valid = {len(valid_data)}")
-
-    # if len(valid_data) > 0:
-    #     print(f"first valid sample: {valid_data[0]}")
 
     # create adjacency matrix
     for i, row in enumerate(indices):

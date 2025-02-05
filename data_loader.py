@@ -87,7 +87,7 @@ def prepare_modalities(df, subset_size=10000, sort_by_uploaded=True, event_types
 	time_modality = df[['datetaken', 'dateupload']].to_numpy()
 
 	# Modality 2: Geospatial data (latitude and longitude)
-	location_modality = df[['latitude', 'longitude']].fillna(-1).to_numpy()
+	location_modality = df[['latitude', 'longitude']].to_numpy()
 
 	# Modality 3: Username data
 	username_modality = df[['username']].to_numpy()
@@ -108,10 +108,6 @@ def prepare_modalities(df, subset_size=10000, sort_by_uploaded=True, event_types
 
 	# Sanity check to ensure alignment
 	assert time_modality.shape[0] == location_modality.shape[0] == text_modality.shape[0] == labels.shape[0], "Mismatch in number of samples between modalities and labels"
-
-	if subset_size < 500:
-		# Return only 2-3 modalities and labels, let's not bloat it
-		return [location_modality, time_modality, username_modality], ["location", "time", "username"], labels
 
 	# Return modalities and labels
 	return [location_modality, time_modality, username_modality, tags_modality, text_modality], ["location", "time", "username", "tags", "text"], labels
@@ -150,13 +146,11 @@ def get_modalities(ground_truth, metadata_path):
 			latitude = float(location.getAttributeNode("latitude").nodeValue)
 			longitude = float(location.getAttributeNode("longitude").nodeValue)
 		except:
-			latitude, longitude = -1, -1
+			latitude, longitude = np.nan, np.nan
 
 		try:
-			tags = [tag.firstChild.data.strip() for tag in photo.getElementsByTagName("tag")]
-			# tags = " ".join(tags)
+			tags = [clean_text(tag.firstChild.data) for tag in photo.getElementsByTagName("tag")]
 		except:
-			# tags = ""
 			tags = []
 
 		try:
@@ -188,7 +182,7 @@ def clean_text(text):
     text = re.sub(r"<.*?>", " ", text)  # Remove HTML tags
     text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)  # Keep only words, numbers, and spaces
     text = re.sub(r"\s+", " ", text)  # Replace multiple spaces with single space
-    return text.strip()
+    return text.strip().lower()
 
 def convertToTimestamp(x):
     return time.mktime(datetime.datetime.strptime(x,"%Y-%m-%d %H:%M:%S.%f").timetuple())
