@@ -101,14 +101,13 @@ def process_streaming_data(results, data_modalities, modality_types, window_size
                 print(f"reduced_matrix:\n{reduced_matrix}")
                 print(f"clusters:\n{clusters}")
                 print(f"labels:\n{true_labels}")
-
-            if approach == "sSVDMC_hung":
-                clusters = match_clusters(prev_clusters, clusters, method="hungarian", min_overlap=3)
-                if subset_size < 500:
-                    print(f"after matching: {clusters}")
             
             if approach == "sSVDMC_pot":
                 clusters = match_clusters(prev_clusters, clusters, method="pot", min_overlap=3)
+                if subset_size < 500:
+                    print(f"after matching: {clusters}")
+            else:
+                clusters = match_clusters(prev_clusters, clusters, method="hungarian", min_overlap=3)
                 if subset_size < 500:
                     print(f"after matching: {clusters}")
 
@@ -260,7 +259,8 @@ if __name__ == "__main__":
     log_file = None
     start_total_time = time.time_ns()
     seed = 0
-    subset_sizes = [8000, 10000, 12000, 14000, 16000] #, 16000] # 18000]
+    small_subset_sizes = [8000, 10000, 12000, 14000, 16000]
+    subset_sizes = [100000, 110000, 120000, 130000, 140000, 150000]
     noise_rates = [0.05, 0.25, 0.50, 0.75, .95] # [0.50, 0.75, .95] if higher base subset
     label_modes = ["binary", "types", "all"]
     sortings = [False, True]
@@ -276,14 +276,14 @@ if __name__ == "__main__":
 
     # Define experiments
     experiments = {
-        "demo": ["binary", "types"], #don't even bother with id-based lol
+        # "demo": ["binary", "types"], #don't even bother with id-based lol
         "subset_size": subset_sizes,
         "label_mode": label_modes,
         "noise_rate": noise_rates,
         "sorting": sortings,
-        "window_size": window_sizes,
-        "reduced_dim": dims,
-        "k_basis": ks,
+        # "window_size": window_sizes,
+        # "reduced_dim": dims,
+        # "k_basis": ks,
     }
 
     # Approaches
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         "SVDMC_batch",
         "SWFDMC",
         "sSVDMC", 
-        "sSVDMC_hung",
+        "sSVDMC_hung", #just set this as my proposed sSVDMC instead
         "sSVDMC_pot",
         "sSVDMC_mini",
         # "DBSCAN_batch",
@@ -302,11 +302,11 @@ if __name__ == "__main__":
     
     default_params = {
         "seed": seed,
-        "subset_size": subset_sizes[0],
-        "noise_rate": noise_rates[-2],
-        "label_mode": label_modes[1],
+        "subset_size": 150000, #subset_sizes[0],
+        "noise_rate": noise_rates[-1],
+        "label_mode": label_modes[0],
         "sorting": sortings[0],
-        "window_size": window_sizes[1],
+        "window_size": window_sizes[2],
         "reduced_dim": 50,
         "k_basis": 50,
         "step_window_ratio": 1,
@@ -322,6 +322,26 @@ if __name__ == "__main__":
             fixed_params["reduced_dim"] = 2
             fixed_params["k_basis"] = 1
             experiment_type = "label_mode"
+
+        log_file = tee.setup_logging() # Comment out when you don't care about seeing all prints
+
+        try:
+            count = run_experiment(df, experiment_type, variable_values, approaches, fixed_params, count)
+
+        except Exception as e:
+            if log_file is not None:
+                log_file.close()  # Ensure log file is closed before stopping
+            raise e  # Re-raise the exception to stop execution
+
+        finally:
+            if log_file is not None:
+                log_file.close()
+
+    default_params["label_mode"] = label_modes[1]
+
+    # Run experiments
+    for experiment_type, variable_values in experiments.items():
+        fixed_params = default_params.copy()
 
         log_file = tee.setup_logging() # Comment out when you don't care about seeing all prints
 
